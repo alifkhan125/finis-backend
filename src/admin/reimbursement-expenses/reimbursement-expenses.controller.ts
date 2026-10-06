@@ -48,5 +48,6 @@ export class ReimbursementExpensesController {
   @Post(':id/submit') submit(@Param('id') id: string, @CurrentUser('id') adminId: string, @CurrentUser('role') role: string) { return this.service.submit(id, adminId, role); }
   @Post(':id/approve') approve(@Param('id') id: string, @CurrentUser('id') adminId: string, @CurrentUser('role') role: string) { return this.service.approve(id, adminId, role); }
   @Post(':id/reject') reject(@Param('id') id: string, @Body() dto: RejectReimbursementExpenseDto, @CurrentUser('id') adminId: string, @CurrentUser('role') role: string) { return this.service.reject(id, dto, adminId, role); }
+  @Post(':id/request-revision') requestRevision(@Param('id') id: string, @Body() dto: RejectReimbursementExpenseDto, @CurrentUser('id') adminId: string, @CurrentUser('role') role: string) { return this.service.requestRevision(id, dto, adminId, role); }
   @Post(':id/mark-paid') markPaid(@Param('id') id: string, @CurrentUser('id') adminId: string, @CurrentUser('role') role: string) { return this.service.markPaid(id, adminId, role); }
 }
