@@ -206,7 +206,7 @@ export class ReimbursementExpenseFilterDto {
   search?: string;
 
   @IsOptional()
-  @IsIn(['DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'PAID'])
+  @IsIn(['DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'PAID', 'REVISION'])
   status?: string;
 
   @IsOptional()

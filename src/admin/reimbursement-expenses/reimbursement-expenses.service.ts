@@ -237,16 +237,17 @@ export class ReimbursementExpensesService {
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), 1);
     const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-    const [totalExpenses, draft, submitted, approved, rejected, paid, monthly] = await Promise.all([
+    const [totalExpenses, draft, submitted, approved, rejected, paid, revision, monthly] = await Promise.all([
       this.prisma.reimbursementExpense.count({ where: scopeWhere }),
       this.prisma.reimbursementExpense.count({ where: { ...scopeWhere, status: 'DRAFT' } }),
       this.prisma.reimbursementExpense.count({ where: { ...scopeWhere, status: 'SUBMITTED' } }),
       this.prisma.reimbursementExpense.count({ where: { ...scopeWhere, status: 'APPROVED' } }),
       this.prisma.reimbursementExpense.count({ where: { ...scopeWhere, status: 'REJECTED' } }),
       this.prisma.reimbursementExpense.count({ where: { ...scopeWhere, status: 'PAID' } }),
+      this.prisma.reimbursementExpense.count({ where: { ...scopeWhere, status: 'REVISION' } }),
       this.prisma.reimbursementExpense.aggregate({ where: { ...scopeWhere, expenseDate: { gte: start, lte: end } }, _sum: { totalAmount: true } }),
     ]);
-    return { summary: { totalExpenses, draft, submitted, approved, rejected, paid, totalAmountThisMonth: Number(monthly._sum.totalAmount ?? 0) } };
+    return { summary: { totalExpenses, draft, submitted, approved, rejected, paid, revision, totalAmountThisMonth: Number(monthly._sum.totalAmount ?? 0) } };
   }
 
   async findOne(id: string, adminId: string, role: string) { return this.serialize(await this.getExpenseOrThrow(id, adminId, role)); }
@@ -264,7 +265,7 @@ export class ReimbursementExpensesService {
 
   async update(id: string, dto: UpdateReimbursementExpenseDto, adminId: string, role: string) {
     const existing = await this.getExpenseOrThrow(id, adminId, role);
-    if (this.isManager(role) && existing.createdById !== adminId) throw new ForbiddenException('Managers can only edit their own expenses'); if (!['DRAFT', 'SUBMITTED', 'REJECTED'].includes(existing.status)) throw new BadRequestException('Only draft, submitted, or rejected expenses can be updated');
+    if (this.isManager(role) && existing.createdById !== adminId) throw new ForbiddenException('Managers can only edit their own expenses'); if (!['DRAFT', 'SUBMITTED', 'REJECTED', 'REVISION'].includes(existing.status)) throw new BadRequestException('Only draft, submitted, rejected, or revision expenses can be updated');
     const projectId = dto.projectId ?? existing.projectId;
     await this.assertProject(projectId ?? undefined); await this.assertProjectAccess(adminId, role, projectId ?? undefined); if (dto.expenseDate) this.assertNotFuture(dto.expenseDate);
     const taskLink = dto.taskId !== undefined || dto.subTaskId !== undefined
@@ -278,10 +279,10 @@ export class ReimbursementExpensesService {
   }
 
   async remove(id: string, adminId: string, role: string) { const existing = await this.getExpenseOrThrow(id, adminId, role); if (this.isManager(role) && existing.createdById !== adminId) throw new ForbiddenException('Managers can only delete their own expenses'); if (existing.status !== 'DRAFT') throw new BadRequestException('Only draft expenses can be deleted'); await this.prisma.reimbursementExpense.delete({ where: { id } }); return { message: 'Expense deleted successfully', id }; }
-  async submit(id: string, adminId: string, role: string) { const existing = await this.getExpenseOrThrow(id, adminId, role); if (this.isManager(role) && existing.createdById !== adminId) throw new ForbiddenException('Managers can only submit their own expenses'); return this.transition(id, adminId, role, 'DRAFT', { status: 'SUBMITTED', submittedAt: new Date() }, 'Expense submitted successfully'); }
+  async submit(id: string, adminId: string, role: string) { const existing = await this.getExpenseOrThrow(id, adminId, role); if (this.isManager(role) && existing.createdById !== adminId) throw new ForbiddenException('Managers can only submit their own expenses'); if (existing.status !== 'DRAFT' && existing.status !== 'REVISION') throw new BadRequestException('Only draft or revision expenses can be submitted'); const message = existing.status === 'REVISION' ? 'Expense resubmitted successfully' : 'Expense submitted successfully'; return this.transition(id, adminId, role, existing.status, { status: 'SUBMITTED', submittedAt: new Date() }, message); }
   async approve(id: string, adminId: string, role: string) { this.assertExpenseAccess(role); if (role === UserRole.worker) throw new ForbiddenException('Workers cannot approve expenses'); const existing = await this.getExpenseOrThrow(id, adminId, role); if (this.isManager(role) && existing.createdById === adminId) throw new ForbiddenException('Managers cannot approve their own expenses'); return this.transition(id, adminId, role, 'SUBMITTED', { status: 'APPROVED', approvedAt: new Date() }, 'Expense approved successfully'); }
   async reject(id: string, dto: RejectReimbursementExpenseDto, adminId: string, role: string) { this.assertExpenseAccess(role); if (role === UserRole.worker) throw new ForbiddenException('Workers cannot reject expenses'); const existing = await this.getExpenseOrThrow(id, adminId, role); if (this.isManager(role) && existing.createdById === adminId) throw new ForbiddenException('Managers cannot reject their own expenses'); return this.transition(id, adminId, role, 'SUBMITTED', { status: 'REJECTED', rejectedAt: new Date(), rejectionNote: dto.comment || null }, 'Expense rejected successfully'); }
-  async requestRevision(id: string, dto: RejectReimbursementExpenseDto, adminId: string, role: string) { this.assertExpenseAccess(role); if (role === UserRole.worker) throw new ForbiddenException('Workers cannot request revision'); const existing = await this.getExpenseOrThrow(id, adminId, role); if (this.isManager(role) && existing.createdById === adminId) throw new ForbiddenException('Managers cannot request revision for their own expenses'); return this.transition(id, adminId, role, 'SUBMITTED', { status: 'DRAFT', rejectionNote: dto.comment || 'Revision requested' }, 'Expense returned for revision successfully'); }
+  async requestRevision(id: string, dto: RejectReimbursementExpenseDto, adminId: string, role: string) { this.assertExpenseAccess(role); if (role === UserRole.worker) throw new ForbiddenException('Workers cannot request revision'); const existing = await this.getExpenseOrThrow(id, adminId, role); if (this.isManager(role) && existing.createdById === adminId) throw new ForbiddenException('Managers cannot request revision for their own expenses'); return this.transition(id, adminId, role, 'SUBMITTED', { status: 'REVISION', rejectionNote: dto.comment || 'Revision requested' }, 'Expense returned for revision successfully'); }
   async markPaid(id: string, adminId: string, role: string) { this.assertAdminReviewer(role); return this.transition(id, adminId, role, 'APPROVED', { status: 'PAID', paidAt: new Date() }, 'Expense marked as paid successfully'); }
 
   private async transition(id: string, userId: string, role: string, from: ReimbursementExpenseStatus, data: Prisma.ReimbursementExpenseUpdateInput, message: string) {
