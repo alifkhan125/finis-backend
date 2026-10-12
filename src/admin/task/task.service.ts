@@ -533,6 +533,7 @@ export class TaskService {
         completionNotes: rest.completionNotes,
         dueDate: rest.dueDate,
         estimatedHours: rest.estimatedHours,
+        price: rest.price ?? 0,
       },
       floors: this.buildTaskLocations(task),
       location: this.buildTaskLocationLabel(task),
@@ -554,6 +555,7 @@ export class TaskService {
         priority: subTask.priority,
         dueDate: subTask.dueDate,
         estimatedHours: subTask.estimatedHours,
+        price: subTask.price ?? 0,
         status: subTask.status,
         approvalDecision: subTask.approvalDecision,
         approvalNotes: subTask.approvalNotes,
@@ -598,6 +600,7 @@ export class TaskService {
       startDate: task.createdAt ?? null,
       dueDate: task.dueDate,
       estimatedHours: task.estimatedHours ?? null,
+      price: task.price ?? 0,
       status: task.status,
       approvalDecision:
         task.approvalDecision === 'rejected' ||
@@ -681,6 +684,7 @@ export class TaskService {
       startDate: subTask.createdAt ?? null,
       dueDate: subTask.dueDate,
       estimatedHours: subTask.estimatedHours,
+      price: subTask.price ?? 0,
       status: subTask.status,
       approvalDecision: subTask.approvalDecision,
       approvalNotes: subTask.approvalNotes ?? null,
@@ -725,6 +729,7 @@ export class TaskService {
       approvalNotes: subTask.approvalNotes ?? null,
       dueDate: subTask.dueDate,
       estimatedHours: subTask.estimatedHours,
+      price: subTask.price ?? 0,
       estimatedTimeLabel:
         subTask.estimatedHours !== null && subTask.estimatedHours !== undefined
           ? `${subTask.estimatedHours} hours`
