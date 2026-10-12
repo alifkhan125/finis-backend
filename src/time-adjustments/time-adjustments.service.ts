@@ -36,7 +36,20 @@ export class TimeAdjustmentsService {
   }
 
   async getAllRequests(user?: any, status?: string) {
-    const whereClause: any = status ? { status } : {};
+    const whereClause: any = {};
+
+    if (status && status !== 'all') {
+      whereClause.status = status;
+    }
+
+    if (user && user.role !== 'super_admin') {
+      if (user.role === 'worker') {
+        whereClause.workerId = user.id;
+      } else if (user.tenantId) {
+        whereClause.worker = { tenantId: user.tenantId };
+      }
+    }
+
     return this.prisma.timeAdjustmentRequest.findMany({
       where: whereClause,
       include: {

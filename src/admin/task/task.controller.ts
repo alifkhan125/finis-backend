@@ -93,7 +93,7 @@ export class TaskController {
 
   /** POST /admin/tasks — Manager পারবে */
   @Post()
-  @Roles(UserRole.admin, UserRole.manager)
+  @Roles(UserRole.admin, UserRole.manager, UserRole.super_admin)
   createTask(
     @Body() dto: CreateTaskDto,
     @CurrentUser('id') userId: string,
@@ -104,7 +104,7 @@ export class TaskController {
 
   /** POST /admin/tasks/:id/assign — পুরো task এক worker-কে assign করা */
   @Post(':id/assign')
-  @Roles(UserRole.admin, UserRole.manager)
+  @Roles(UserRole.admin, UserRole.manager, UserRole.super_admin)
   assignWorker(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: AssignTaskDto,
@@ -116,7 +116,7 @@ export class TaskController {
 
   /** POST /admin/tasks/:id/subtasks — sub task create */
   @Post(':id/subtasks')
-  @Roles(UserRole.admin, UserRole.manager)
+  @Roles(UserRole.admin, UserRole.manager, UserRole.super_admin)
   createSubTask(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: CreateSubTaskDto,

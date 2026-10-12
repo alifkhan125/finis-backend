@@ -55,7 +55,7 @@ export class MailboxController {
 
   @Post('mail/send')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.manager)
+  @Roles(UserRole.admin, UserRole.manager, UserRole.super_admin)
   @UseInterceptors(
     FileInterceptor('file', {
       storage: memoryStorage(),

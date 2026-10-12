@@ -38,26 +38,69 @@ export class ResponseInterceptor implements NestInterceptor {
 
     if (!hasFinancialKey) return false;
 
+    // Never strip public subscription plan prices
+    if (
+      'stripeProductId' in value ||
+      'priceMonthly' in value ||
+      'priceYearly' in value
+    ) {
+      return false;
+    }
+
+    // Never strip manager customer quote builder items
+    if (
+      'projectType' in value &&
+      'propertyType' in value &&
+      'unitType' in value
+    ) {
+      return false;
+    }
+
     const hasTaskIdentity =
       'taskId' in value ||
       'task_id' in value ||
+      'subTaskId' in value ||
+      'sub_task_id' in value ||
       'projectId' in value ||
       'project_id' in value ||
+      'invoiceId' in value ||
+      'invoice_id' in value ||
       'approvalDecision' in value ||
       'completionDecision' in value ||
       'subTasks' in value ||
-      'task' in value;
+      'sub_tasks' in value ||
+      'task' in value ||
+      'subTask' in value ||
+      'sub_task' in value;
 
     const hasTaskShape =
-      'title' in value &&
+      ('title' in value ||
+        'taskTitle' in value ||
+        'task_title' in value ||
+        'name' in value) &&
       ('status' in value ||
         'priority' in value ||
         'dueDate' in value ||
+        'due_date' in value ||
         'assignedTo' in value ||
+        'assigned_to' in value ||
         'createdBy' in value ||
-        'unitId' in value);
+        'created_by' in value ||
+        'unitId' in value ||
+        'unit_id' in value);
 
-    return hasTaskIdentity || hasTaskShape;
+    const hasOperationalFinancialKey =
+      'price' in value ||
+      'taskValue' in value ||
+      'task_value' in value ||
+      'billingValue' in value ||
+      'billing_value' in value ||
+      'internalValue' in value ||
+      'internal_value' in value ||
+      'invoiceTotal' in value ||
+      'invoice_total' in value;
+
+    return hasTaskIdentity || hasTaskShape || hasOperationalFinancialKey;
   }
 
   private stripTaskFinancials(value: any): any {

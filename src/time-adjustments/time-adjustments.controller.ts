@@ -32,8 +32,22 @@ export class TimeAdjustmentsController {
     return this.service.createRequest(user.id, body);
   }
 
+  @Get()
+  async getAllRequests(
+    @CurrentUser() user: any,
+    @Query('status') status?: string,
+  ) {
+    return this.service.getAllRequests(user, status);
+  }
+
   @Get('pending')
-  async getPendingRequests(@CurrentUser() user: any) {
+  async getPendingRequests(
+    @CurrentUser() user: any,
+    @Query('status') queryStatus?: string,
+  ) {
+    if (queryStatus && queryStatus !== 'pending') {
+      return this.service.getAllRequests(user, queryStatus);
+    }
     return this.service.getPendingRequests(user);
   }
 

@@ -70,4 +70,45 @@ describe('ResponseInterceptor financial privacy', () => {
     expect(result.data.priceMonthly).toBe(99);
     expect(result.data.priceYearly).toBe(999);
   });
+
+  it('strips invoice totals and operational billing values for workers', async () => {
+    const interceptor = new ResponseInterceptor();
+    const result = await lastValueFrom(
+      interceptor.intercept(makeContext('worker'), {
+        handle: () =>
+          of({
+            invoiceId: 'inv-1',
+            invoiceNumber: 'INV-2026-001',
+            invoiceTotal: 4500,
+            subtotal: 4000,
+            status: 'draft',
+          }),
+      }),
+    );
+
+    expect(result.data.invoiceTotal).toBeUndefined();
+    expect(result.data.subtotal).toBeUndefined();
+    expect(result.data.invoiceNumber).toBe('INV-2026-001');
+  });
+
+  it('preserves manager customer quote builder items', async () => {
+    const interceptor = new ResponseInterceptor();
+    const result = await lastValueFrom(
+      interceptor.intercept(makeContext('manager'), {
+        handle: () =>
+          of({
+            id: 'quote-1',
+            projectType: 'commercial',
+            propertyType: 'office',
+            unitType: 'floor',
+            title: 'Floor Tiling',
+            unitPrice: 25,
+            subtotal: 2500,
+          }),
+      }),
+    );
+
+    expect(result.data.unitPrice).toBe(25);
+    expect(result.data.subtotal).toBe(2500);
+  });
 });
