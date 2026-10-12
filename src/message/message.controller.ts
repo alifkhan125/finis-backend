@@ -50,11 +50,12 @@ export class MessageController {
    */
   @Get('contacts')
   @Roles('admin', 'manager', 'worker')
-  getChatContacts(
-    @Request() req: any,
-    @Query('search') search?: string,
-  ) {
-    return this.messageService.getChatContacts(req.user.id, req.user.role, search);
+  getChatContacts(@Request() req: any, @Query('search') search?: string) {
+    return this.messageService.getChatContacts(
+      req.user.id,
+      req.user.role,
+      search,
+    );
   }
 
   /**
@@ -77,11 +78,12 @@ export class MessageController {
    */
   @Get('threads/chat')
   @Roles('admin', 'manager', 'worker')
-  getUserChatThreads(
-    @Request() req: any,
-    @Query() query: ThreadQueryDto,
-  ) {
-    return this.messageService.getUserChatThreads(req.user.id, req.user.role, query);
+  getUserChatThreads(@Request() req: any, @Query() query: ThreadQueryDto) {
+    return this.messageService.getUserChatThreads(
+      req.user.id,
+      req.user.role,
+      query,
+    );
   }
 
   /**
@@ -90,15 +92,19 @@ export class MessageController {
    */
   @Post('threads/direct')
   @Roles('admin', 'manager', 'worker')
-  createDirectThread(
-    @Request() req: any,
-    @Body() dto: CreateDirectThreadDto,
-  ) {
-    return this.messageService.createDirectThread(req.user.id, dto).then((thread: any) => {
-      const participantIds = thread.participants?.map((participant: any) => participant.userId) ?? [];
-      this.messageGateway.joinOnlineParticipantsToThread(thread.id, participantIds);
-      return thread;
-    });
+  createDirectThread(@Request() req: any, @Body() dto: CreateDirectThreadDto) {
+    return this.messageService
+      .createDirectThread(req.user.id, dto)
+      .then((thread: any) => {
+        const participantIds =
+          thread.participants?.map((participant: any) => participant.userId) ??
+          [];
+        this.messageGateway.joinOnlineParticipantsToThread(
+          thread.id,
+          participantIds,
+        );
+        return thread;
+      });
   }
 
   // ═════════════════════════════════════════════
@@ -122,11 +128,18 @@ export class MessageController {
   @Post('support/thread')
   @Roles('admin', 'manager', 'worker')
   getOrCreateSupportThread(@Request() req: any) {
-    return this.messageService.getOrCreateSupportThread(req.user.id).then((thread: any) => {
-      const participantIds = thread.participants?.map((participant: any) => participant.userId) ?? [];
-      this.messageGateway.joinOnlineParticipantsToThread(thread.id, participantIds);
-      return thread;
-    });
+    return this.messageService
+      .getOrCreateSupportThread(req.user.id)
+      .then((thread: any) => {
+        const participantIds =
+          thread.participants?.map((participant: any) => participant.userId) ??
+          [];
+        this.messageGateway.joinOnlineParticipantsToThread(
+          thread.id,
+          participantIds,
+        );
+        return thread;
+      });
   }
 
   // ═════════════════════════════════════════════
@@ -153,21 +166,33 @@ export class MessageController {
    */
   @Post('send')
   @Roles('admin', 'manager', 'worker')
-  sendMessage(
-    @Request() req: any,
-    @Body() dto: SendMessageDto,
-  ) {
-    return this.messageService.sendMessage(req.user.id, dto).then(async (result: any) => {
-      const participantIds = result.participantIds ?? [];
-      const threadId = result.threadId ?? dto.threadId;
-      this.messageGateway.joinOnlineParticipantsToThread(threadId, participantIds);
-      this.messageGateway.emitToThread(threadId, 'message:new', result.message, participantIds);
-      this.messageGateway.emitToThread(threadId, 'thread:updated', {
-        threadId,
-        lastMessage: result.message,
-      }, participantIds);
-      return result.message;
-    });
+  sendMessage(@Request() req: any, @Body() dto: SendMessageDto) {
+    return this.messageService
+      .sendMessage(req.user.id, dto)
+      .then(async (result: any) => {
+        const participantIds = result.participantIds ?? [];
+        const threadId = result.threadId ?? dto.threadId;
+        this.messageGateway.joinOnlineParticipantsToThread(
+          threadId,
+          participantIds,
+        );
+        this.messageGateway.emitToThread(
+          threadId,
+          'message:new',
+          result.message,
+          participantIds,
+        );
+        this.messageGateway.emitToThread(
+          threadId,
+          'thread:updated',
+          {
+            threadId,
+            lastMessage: result.message,
+          },
+          participantIds,
+        );
+        return result.message;
+      });
   }
 
   /**
@@ -176,13 +201,13 @@ export class MessageController {
    */
   @Post('upload')
   @Roles('admin', 'manager', 'worker', 'super_admin')
-  @UseInterceptors(FileInterceptor('file', {
-    storage: memoryStorage(),
-    limits: { fileSize: 20 * 1024 * 1024 },
-  }))
-  async uploadFile(
-    @UploadedFile() file: Express.Multer.File | undefined,
-  ) {
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 20 * 1024 * 1024 },
+    }),
+  )
+  async uploadFile(@UploadedFile() file: Express.Multer.File | undefined) {
     if (!file) {
       return { message: 'No file uploaded' };
     }
@@ -223,10 +248,7 @@ export class MessageController {
    */
   @Post('block')
   @Roles('admin', 'manager', 'worker')
-  blockUser(
-    @Request() req: any,
-    @Body() dto: BlockUserDto,
-  ) {
+  blockUser(@Request() req: any, @Body() dto: BlockUserDto) {
     return this.messageService.blockUser(req.user.id, dto);
   }
 
@@ -238,10 +260,7 @@ export class MessageController {
    */
   @Post('unblock')
   @Roles('admin', 'manager', 'worker')
-  unblockUser(
-    @Request() req: any,
-    @Body() dto: BlockUserDto,
-  ) {
+  unblockUser(@Request() req: any, @Body() dto: BlockUserDto) {
     return this.messageService.unblockUser(req.user.id, dto);
   }
 
@@ -265,10 +284,7 @@ export class MessageController {
    */
   @Get('admin/support/threads')
   @Roles('super_admin')
-  getAdminSupportThreads(
-    @Request() req: any,
-    @Query() query: ThreadQueryDto,
-  ) {
+  getAdminSupportThreads(@Request() req: any, @Query() query: ThreadQueryDto) {
     return this.messageService.getAdminSupportThreads(req.user.id, query);
   }
 
@@ -296,11 +312,18 @@ export class MessageController {
     @Request() req: any,
     @Body() dto: StartSupportThreadDto,
   ) {
-    return this.messageService.getOrCreateSupportThread(req.user.id, dto.targetUserId).then((thread: any) => {
-      const participantIds = thread.participants?.map((participant: any) => participant.userId) ?? [];
-      this.messageGateway.joinOnlineParticipantsToThread(thread.id, participantIds);
-      return thread;
-    });
+    return this.messageService
+      .getOrCreateSupportThread(req.user.id, dto.targetUserId)
+      .then((thread: any) => {
+        const participantIds =
+          thread.participants?.map((participant: any) => participant.userId) ??
+          [];
+        this.messageGateway.joinOnlineParticipantsToThread(
+          thread.id,
+          participantIds,
+        );
+        return thread;
+      });
   }
 
   /**
@@ -313,17 +336,37 @@ export class MessageController {
     @Request() req: any,
     @Body() dto: AdminSendMessageDto,
   ) {
-    return this.messageService.sendAdminSupportMessage(req.user.id, dto).then(async (message) => {
-      const thread = await this.messageService.getThreadById(dto.threadId, req.user.id);
-      const participantIds = thread.participants?.map((participant: any) => participant.userId) ?? [];
-      this.messageGateway.joinOnlineParticipantsToThread(dto.threadId, participantIds);
-      this.messageGateway.emitToThread(dto.threadId, 'message:new', message, participantIds);
-      this.messageGateway.emitToThread(dto.threadId, 'thread:updated', {
-        threadId: dto.threadId,
-        lastMessage: message,
-      }, participantIds);
-      return message;
-    });
+    return this.messageService
+      .sendAdminSupportMessage(req.user.id, dto)
+      .then(async (message) => {
+        const thread = await this.messageService.getThreadById(
+          dto.threadId,
+          req.user.id,
+        );
+        const participantIds =
+          thread.participants?.map((participant: any) => participant.userId) ??
+          [];
+        this.messageGateway.joinOnlineParticipantsToThread(
+          dto.threadId,
+          participantIds,
+        );
+        this.messageGateway.emitToThread(
+          dto.threadId,
+          'message:new',
+          message,
+          participantIds,
+        );
+        this.messageGateway.emitToThread(
+          dto.threadId,
+          'thread:updated',
+          {
+            threadId: dto.threadId,
+            lastMessage: message,
+          },
+          participantIds,
+        );
+        return message;
+      });
   }
 
   /**

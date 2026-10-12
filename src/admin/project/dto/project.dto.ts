@@ -12,7 +12,12 @@ import {
   IsUUID,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ProjectType, ProjectStatus, FloorStatus, RoomStatus } from '../../../generated/prisma/client';
+import {
+  ProjectType,
+  ProjectStatus,
+  FloorStatus,
+  RoomStatus,
+} from '../../../generated/prisma/client';
 
 // ─── ROOM DTOs ─────────────────────────────────────────────────────────────
 
@@ -75,7 +80,6 @@ export class UpdateRoomDto {
   @Min(0)
   @Type(() => Number)
   progress?: number;
-
 }
 
 // ─── FLOOR DTOs ────────────────────────────────────────────────────────────
@@ -219,8 +223,6 @@ export class CreateProjectDto {
   @Type(() => Number)
   unitPerFloorMax?: number;
 
-
-
   @IsOptional()
   @IsBoolean()
   autoGenerateFloors?: boolean;
@@ -362,8 +364,6 @@ export class AddProjectMemberDto {
 }
 
 // ─── GEOFENCE DTOs ─────────────────────────────────────────────────────────
-
-
 
 class LatLngDto {
   @IsNumber()

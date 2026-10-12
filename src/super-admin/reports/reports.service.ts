@@ -1,4 +1,8 @@
-import { Injectable, BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UserRole } from '../../generated/prisma/client';
 import PDFDocument from 'pdfkit';
@@ -14,9 +18,13 @@ export class ReportsService {
   constructor(private prisma: PrismaService) {}
 
   // ─── Date range helper ────────────────────────────────────────────────────
-  private getDateRange(frequency: PeriodFrequency, startDate: string, endDate: string) {
+  private getDateRange(
+    frequency: PeriodFrequency,
+    startDate: string,
+    endDate: string,
+  ) {
     const start = new Date(startDate);
-    const end   = new Date(endDate);
+    const end = new Date(endDate);
     end.setHours(23, 59, 59, 999);
     return { start, end };
   }
@@ -97,13 +105,14 @@ export class ReportsService {
 
   private drawHeader(doc: any, report: any) {
     const title = this.toReportTitle(report.type);
-    const companyLabel = report.type === ReportType.project_invoices
-      ? 'Company / Project Insights'
-      : report.type === ReportType.payroll
-        ? 'Payroll Overview'
-        : report.type === ReportType.worker_performance
-          ? 'Workforce Overview'
-          : 'Expense Overview';
+    const companyLabel =
+      report.type === ReportType.project_invoices
+        ? 'Company / Project Insights'
+        : report.type === ReportType.payroll
+          ? 'Payroll Overview'
+          : report.type === ReportType.worker_performance
+            ? 'Workforce Overview'
+            : 'Expense Overview';
 
     doc.save();
     doc.roundedRect(40, 38, 515, 96, 18).fillAndStroke('#1D4F6D', '#1D4F6D');
@@ -120,42 +129,73 @@ export class ReportsService {
       width: 360,
       align: 'left',
     });
-    doc.fontSize(9).font('Helvetica').text(`Generated ${new Date(report.generatedAt ?? Date.now()).toLocaleString()}`, 380, 56, {
-      width: 150,
-      align: 'right',
-    });
+    doc
+      .fontSize(9)
+      .font('Helvetica')
+      .text(
+        `Generated ${new Date(report.generatedAt ?? Date.now()).toLocaleString()}`,
+        380,
+        56,
+        {
+          width: 150,
+          align: 'right',
+        },
+      );
     doc.restore();
 
     doc.y = 150;
   }
 
-  private drawSectionTitle(doc: any, title: string, subtitle?: string) {        
+  private drawSectionTitle(doc: any, title: string, subtitle?: string) {
     doc.x = 40;
     doc.moveDown(0.15);
-    doc.fontSize(16).font('Helvetica-Bold').fillColor('#111827').text(title, 40, doc.y, {
-      width: 515,
-      align: 'left',
-    });
-    if (subtitle) {
-      doc.fontSize(10).font('Helvetica').fillColor('#6B7280').text(subtitle, 40, doc.y, {
+    doc
+      .fontSize(16)
+      .font('Helvetica-Bold')
+      .fillColor('#111827')
+      .text(title, 40, doc.y, {
         width: 515,
         align: 'left',
       });
+    if (subtitle) {
+      doc
+        .fontSize(10)
+        .font('Helvetica')
+        .fillColor('#6B7280')
+        .text(subtitle, 40, doc.y, {
+          width: 515,
+          align: 'left',
+        });
     }
     doc.moveDown(0.2);
   }
 
-  private drawMetricCard(doc: any, x: number, y: number, width: number, label: string, value: string, accent: string) {
+  private drawMetricCard(
+    doc: any,
+    x: number,
+    y: number,
+    width: number,
+    label: string,
+    value: string,
+    accent: string,
+  ) {
     doc.save();
     doc.roundedRect(x, y, width, 58, 12).fillAndStroke('#F9FAFB', '#E5E7EB');
-    doc.fontSize(8).fillColor('#6B7280').text(label.toUpperCase(), x + 12, y + 10, {
-      width: width - 24,
-      align: 'left',
-    });
-    doc.fontSize(15).font('Helvetica-Bold').fillColor(accent).text(value, x + 12, y + 26, {
-      width: width - 24,
-      align: 'left',
-    });
+    doc
+      .fontSize(8)
+      .fillColor('#6B7280')
+      .text(label.toUpperCase(), x + 12, y + 10, {
+        width: width - 24,
+        align: 'left',
+      });
+    doc
+      .fontSize(15)
+      .font('Helvetica-Bold')
+      .fillColor(accent)
+      .text(value, x + 12, y + 26, {
+        width: width - 24,
+        align: 'left',
+      });
     doc.restore();
   }
 
@@ -195,7 +235,11 @@ export class ReportsService {
       });
       x += widths[index];
     });
-    doc.moveTo(startX, headerY + rowHeight - 2).lineTo(startX + tableWidth, headerY + rowHeight - 2).strokeColor('#CBD5E1').stroke();
+    doc
+      .moveTo(startX, headerY + rowHeight - 2)
+      .lineTo(startX + tableWidth, headerY + rowHeight - 2)
+      .strokeColor('#CBD5E1')
+      .stroke();
     doc.restore();
     doc.y = headerY + rowHeight;
 
@@ -204,7 +248,9 @@ export class ReportsService {
       const bg = rowIndex % 2 === 0 ? '#F9FAFB' : '#FFFFFF';
       const rowY = doc.y;
       doc.save();
-      doc.rect(startX, rowY, tableWidth, rowHeight).fillAndStroke(bg, '#E5E7EB');
+      doc
+        .rect(startX, rowY, tableWidth, rowHeight)
+        .fillAndStroke(bg, '#E5E7EB');
       doc.fillColor('#111827').font('Helvetica').fontSize(9);
       let cellX = startX;
       row.forEach((cell, cellIndex) => {
@@ -225,97 +271,175 @@ export class ReportsService {
 
   private writeReportToPdf(doc: any, report: any) {
     this.drawHeader(doc, report);
-    const periodStart = report.period?.start ? new Date(report.period.start).toLocaleDateString() : 'N/A';
-    const periodEnd = report.period?.end ? new Date(report.period.end).toLocaleDateString() : 'N/A';
+    const periodStart = report.period?.start
+      ? new Date(report.period.start).toLocaleDateString()
+      : 'N/A';
+    const periodEnd = report.period?.end
+      ? new Date(report.period.end).toLocaleDateString()
+      : 'N/A';
 
-    doc.fontSize(11).font('Helvetica-Bold').fillColor('#6B7280').text(`Period: ${periodStart} - ${periodEnd}`, 40, 164, {
-      width: 515,
-      align: 'left',
-    });
+    doc
+      .fontSize(11)
+      .font('Helvetica-Bold')
+      .fillColor('#6B7280')
+      .text(`Period: ${periodStart} - ${periodEnd}`, 40, 164, {
+        width: 515,
+        align: 'left',
+      });
 
     const summary = report.summary ?? {};
     doc.y = 194;
     this.drawSectionTitle(doc, 'Summary', 'Key metrics for the selected range');
 
     const summaryRows: string[][] = [];
-    const summaryEntries = Object.entries(summary).filter(([key]) => key !== 'byStatus' && key !== 'byCategory');
+    const summaryEntries = Object.entries(summary).filter(
+      ([key]) => key !== 'byStatus' && key !== 'byCategory',
+    );
     summaryEntries.slice(0, 6).forEach(([key, value]) => {
       const label = key.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ');
-      const displayValue = typeof value === 'number' ? this.formatMoney(value) : String(value);
+      const displayValue =
+        typeof value === 'number' ? this.formatMoney(value) : String(value);
       summaryRows.push([label, displayValue]);
     });
     if (summaryRows.length > 0) {
-      this.drawTable(doc, ['Metric', 'Value'], summaryRows, [260, 255], { rowHeight: 24 });
+      this.drawTable(doc, ['Metric', 'Value'], summaryRows, [260, 255], {
+        rowHeight: 24,
+      });
     }
 
-    const byStatus = (summary as any).byStatus;
-    if (byStatus && typeof byStatus === 'object' && Object.keys(byStatus).length > 0) {
+    const byStatus = summary.byStatus;
+    if (
+      byStatus &&
+      typeof byStatus === 'object' &&
+      Object.keys(byStatus).length > 0
+    ) {
       this.drawSectionTitle(doc, 'Status Breakdown');
-      const statusRows = Object.entries(byStatus).map(([key, value]) => [key, String(value)]);
-      this.drawTable(doc, ['Status', 'Count'], statusRows, [260, 255], { rowHeight: 22 });
+      const statusRows = Object.entries(byStatus).map(([key, value]) => [
+        key,
+        String(value),
+      ]);
+      this.drawTable(doc, ['Status', 'Count'], statusRows, [260, 255], {
+        rowHeight: 22,
+      });
     }
 
-    const byCategory = (summary as any).byCategory;
-    if (byCategory && typeof byCategory === 'object' && Object.keys(byCategory).length > 0) {
+    const byCategory = summary.byCategory;
+    if (
+      byCategory &&
+      typeof byCategory === 'object' &&
+      Object.keys(byCategory).length > 0
+    ) {
       this.drawSectionTitle(doc, 'Category Breakdown');
-      const categoryRows = Object.entries(byCategory).map(([key, value]) => [key, this.formatMoney(Number(value))]);
-      this.drawTable(doc, ['Category', 'Amount'], categoryRows, [260, 255], { rowHeight: 22 });
+      const categoryRows = Object.entries(byCategory).map(([key, value]) => [
+        key,
+        this.formatMoney(Number(value)),
+      ]);
+      this.drawTable(doc, ['Category', 'Amount'], categoryRows, [260, 255], {
+        rowHeight: 22,
+      });
     }
 
     const payrollRows = report.type === 'payroll' ? (report.workers ?? []) : [];
-    const projectRows = report.type === 'project_invoices' ? (report.projects ?? []) : [];
-    const performanceRows = report.type === 'worker_performance' ? (report.workers ?? []) : [];
-    const expenseRows = report.type === 'expense' ? (report.expenses ?? []) : [];
-    const hasDetails = payrollRows.length > 0 || projectRows.length > 0 || performanceRows.length > 0 || expenseRows.length > 0;
+    const projectRows =
+      report.type === 'project_invoices' ? (report.projects ?? []) : [];
+    const performanceRows =
+      report.type === 'worker_performance' ? (report.workers ?? []) : [];
+    const expenseRows =
+      report.type === 'expense' ? (report.expenses ?? []) : [];
+    const hasDetails =
+      payrollRows.length > 0 ||
+      projectRows.length > 0 ||
+      performanceRows.length > 0 ||
+      expenseRows.length > 0;
 
     if (hasDetails) {
-      this.drawSectionTitle(doc, 'Details', 'Top items from the selected period');
+      this.drawSectionTitle(
+        doc,
+        'Details',
+        'Top items from the selected period',
+      );
     }
 
     if (report.type === 'payroll') {
-      const rows = payrollRows.slice(0, 12).map((worker: any, index: number) => ([
-        `${index + 1}. ${worker.worker?.fullName ?? 'Worker'}`,
-        worker.attendance?.attendanceRate ?? '0%',
-        `${worker.tasks?.completed ?? 0}/${worker.tasks?.total ?? 0}`,
-        worker.performanceScore ?? '0%',
-        this.formatMoney(worker.totalGrossPay),
-        this.formatMoney(worker.totalNetPay),
-      ]));
-      this.drawTable(doc, ['Worker', 'Attendance', 'Tasks', 'Score', 'Gross', 'Net'], rows, [150, 70, 75, 65, 80, 75], { rowHeight: 24 });
+      const rows = payrollRows
+        .slice(0, 12)
+        .map((worker: any, index: number) => [
+          `${index + 1}. ${worker.worker?.fullName ?? 'Worker'}`,
+          worker.attendance?.attendanceRate ?? '0%',
+          `${worker.tasks?.completed ?? 0}/${worker.tasks?.total ?? 0}`,
+          worker.performanceScore ?? '0%',
+          this.formatMoney(worker.totalGrossPay),
+          this.formatMoney(worker.totalNetPay),
+        ]);
+      this.drawTable(
+        doc,
+        ['Worker', 'Attendance', 'Tasks', 'Score', 'Gross', 'Net'],
+        rows,
+        [150, 70, 75, 65, 80, 75],
+        { rowHeight: 24 },
+      );
     } else if (report.type === 'project_invoices') {
-      const rows = projectRows.slice(0, 12).map((project: any) => ([
-        project.name,
-        project.company?.name ?? 'N/A',
-        `${project.progress ?? 0}%`,
-        this.formatMoney(project.budget),
-        this.formatMoney(project.spent),
-        this.formatMoney(project.remaining),
-      ]));
-      this.drawTable(doc, ['Project', 'Company', 'Progress', 'Budget', 'Spent', 'Remaining'], rows, [140, 110, 60, 70, 70, 65], { rowHeight: 24 });
+      const rows = projectRows
+        .slice(0, 12)
+        .map((project: any) => [
+          project.name,
+          project.company?.name ?? 'N/A',
+          `${project.progress ?? 0}%`,
+          this.formatMoney(project.budget),
+          this.formatMoney(project.spent),
+          this.formatMoney(project.remaining),
+        ]);
+      this.drawTable(
+        doc,
+        ['Project', 'Company', 'Progress', 'Budget', 'Spent', 'Remaining'],
+        rows,
+        [140, 110, 60, 70, 70, 65],
+        { rowHeight: 24 },
+      );
     } else if (report.type === 'worker_performance') {
-      const rows = performanceRows.slice(0, 12).map((worker: any) => ([
-        worker.worker?.fullName ?? 'Worker',
-        worker.attendance?.attendanceRate ?? '0%',
-        `${worker.subTasks?.completed ?? 0}/${worker.subTasks?.total ?? 0}`,
-        `${worker.reports?.approved ?? 0}/${worker.reports?.total ?? 0}`,
-        worker.performanceScore ?? '0%',
-      ]));
-      this.drawTable(doc, ['Worker', 'Attendance', 'Sub-task', 'Reports', 'Score'], rows, [170, 75, 90, 90, 90], { rowHeight: 24 });
+      const rows = performanceRows
+        .slice(0, 12)
+        .map((worker: any) => [
+          worker.worker?.fullName ?? 'Worker',
+          worker.attendance?.attendanceRate ?? '0%',
+          `${worker.subTasks?.completed ?? 0}/${worker.subTasks?.total ?? 0}`,
+          `${worker.reports?.approved ?? 0}/${worker.reports?.total ?? 0}`,
+          worker.performanceScore ?? '0%',
+        ]);
+      this.drawTable(
+        doc,
+        ['Worker', 'Attendance', 'Sub-task', 'Reports', 'Score'],
+        rows,
+        [170, 75, 90, 90, 90],
+        { rowHeight: 24 },
+      );
     } else if (report.type === 'expense') {
-      const rows = expenseRows.slice(0, 15).map((expense: any) => ([
-        expense.description ?? 'N/A',
-        expense.worker?.fullName ?? 'N/A',
-        expense.project?.name ?? 'N/A',
-        expense.category ?? 'N/A',
-        this.formatMoney(expense.amount),
-        expense.status ?? 'N/A',
-      ]));
-      this.drawTable(doc, ['Description', 'Worker', 'Project', 'Category', 'Amount', 'Status'], rows, [145, 100, 100, 60, 65, 45], { rowHeight: 24 });
+      const rows = expenseRows
+        .slice(0, 15)
+        .map((expense: any) => [
+          expense.description ?? 'N/A',
+          expense.worker?.fullName ?? 'N/A',
+          expense.project?.name ?? 'N/A',
+          expense.category ?? 'N/A',
+          this.formatMoney(expense.amount),
+          expense.status ?? 'N/A',
+        ]);
+      this.drawTable(
+        doc,
+        ['Description', 'Worker', 'Project', 'Category', 'Amount', 'Status'],
+        rows,
+        [145, 100, 100, 60, 65, 45],
+        { rowHeight: 24 },
+      );
     }
   }
 
   // ─── Access filter ────────────────────────────────────────────────────────
-  private async getCompanyIds(userId: string, userRole: string, companyId?: string) {
+  private async getCompanyIds(
+    userId: string,
+    userRole: string,
+    companyId?: string,
+  ) {
     // If a company is explicitly requested, verify that the caller is allowed to see it.
     if (companyId) {
       if (userRole === UserRole.super_admin) {
@@ -381,19 +505,55 @@ export class ReportsService {
     userId: string,
     userRole: string,
   ) {
-    const { start, end } = this.getDateRange(dto.frequency, dto.startDate, dto.endDate);
+    const { start, end } = this.getDateRange(
+      dto.frequency,
+      dto.startDate,
+      dto.endDate,
+    );
     // Resolve the accessible company scope first, then generate the selected report.
-    const companyIds     = await this.getCompanyIds(userId, userRole, dto.companyId);
+    const companyIds = await this.getCompanyIds(
+      userId,
+      userRole,
+      dto.companyId,
+    );
 
     switch (dto.type) {
       case ReportType.payroll:
-        return this.generatePayrollReport(start, end, companyIds, dto, userId, userRole);
+        return this.generatePayrollReport(
+          start,
+          end,
+          companyIds,
+          dto,
+          userId,
+          userRole,
+        );
       case ReportType.project_invoices:
-        return this.generateProjectInvoicesReport(start, end, companyIds, dto, userId, userRole);
+        return this.generateProjectInvoicesReport(
+          start,
+          end,
+          companyIds,
+          dto,
+          userId,
+          userRole,
+        );
       case ReportType.worker_performance:
-        return this.generateWorkerPerformanceReport(start, end, companyIds, dto, userId, userRole);
+        return this.generateWorkerPerformanceReport(
+          start,
+          end,
+          companyIds,
+          dto,
+          userId,
+          userRole,
+        );
       case ReportType.expense:
-        return this.generateExpenseReport(start, end, companyIds, dto, userId, userRole);
+        return this.generateExpenseReport(
+          start,
+          end,
+          companyIds,
+          dto,
+          userId,
+          userRole,
+        );
       default:
         throw new BadRequestException('Invalid report type');
     }
@@ -410,9 +570,9 @@ export class ReportsService {
   ) {
     const payrolls = await this.prisma.payroll.findMany({
       where: {
-        companyId:      { in: companyIds },
+        companyId: { in: companyIds },
         payPeriodStart: { gte: start },
-        payPeriodEnd:   { lte: end },
+        payPeriodEnd: { lte: end },
       },
       include: {
         worker: {
@@ -431,17 +591,23 @@ export class ReportsService {
       orderBy: { createdAt: 'desc' },
     });
 
-    const paidPayrolls      = payrolls.filter((p) => p.status === 'paid');
-    const totalGrossPay     = payrolls.reduce((s, p) => s + p.grossPay,        0);
-    const totalNetPay       = paidPayrolls.reduce((s, p) => s + p.grossPay,     0);
-    const totalDeductions   = 0;
-    const totalEmployerCost = payrolls.reduce((s, p) => s + (p.employerCost ?? 0), 0);
-    const totalHours        = payrolls.reduce((s, p) => s + p.regularHours + p.overtimeHours, 0);
+    const paidPayrolls = payrolls.filter((p) => p.status === 'paid');
+    const totalGrossPay = payrolls.reduce((s, p) => s + p.grossPay, 0);
+    const totalNetPay = paidPayrolls.reduce((s, p) => s + p.grossPay, 0);
+    const totalDeductions = 0;
+    const totalEmployerCost = payrolls.reduce(
+      (s, p) => s + (p.employerCost ?? 0),
+      0,
+    );
+    const totalHours = payrolls.reduce(
+      (s, p) => s + p.regularHours + p.overtimeHours,
+      0,
+    );
 
     const byStatus = {
-      draft:    payrolls.filter((p) => p.status === 'draft').length,
+      draft: payrolls.filter((p) => p.status === 'draft').length,
       approved: payrolls.filter((p) => p.status === 'approved').length,
-      paid:     payrolls.filter((p) => p.status === 'paid').length,
+      paid: payrolls.filter((p) => p.status === 'paid').length,
     };
 
     // Per worker breakdown
@@ -450,47 +616,47 @@ export class ReportsService {
       const key = p.workerId;
       if (!workerMap.has(key)) {
         workerMap.set(key, {
-          worker:         p.worker,
-          totalGrossPay:  0,
-          totalNetPay:    0,
+          worker: p.worker,
+          totalGrossPay: 0,
+          totalNetPay: 0,
           totalDeductions: 0,
-          totalHours:     0,
-          payrolls:       [],
+          totalHours: 0,
+          payrolls: [],
         });
       }
       const entry = workerMap.get(key);
-      entry.totalGrossPay   += p.grossPay;
-      entry.totalNetPay     += p.status === 'paid' ? p.grossPay : 0;
+      entry.totalGrossPay += p.grossPay;
+      entry.totalNetPay += p.status === 'paid' ? p.grossPay : 0;
       entry.totalDeductions += 0;
-      entry.totalHours      += p.regularHours + p.overtimeHours;
+      entry.totalHours += p.regularHours + p.overtimeHours;
       entry.payrolls.push({
-        payrollId:  p.id,
-        period:     `${p.payPeriodStart.toLocaleDateString()} - ${p.payPeriodEnd.toLocaleDateString()}`,
-        grossPay:   p.grossPay,
+        payrollId: p.id,
+        period: `${p.payPeriodStart.toLocaleDateString()} - ${p.payPeriodEnd.toLocaleDateString()}`,
+        grossPay: p.grossPay,
         deductions: 0,
-        netPay:     p.status === 'paid' ? p.grossPay : 0,
-        status:     p.status,
+        netPay: p.status === 'paid' ? p.grossPay : 0,
+        status: p.status,
       });
     }
 
     return {
-      type:        'payroll',
-      frequency:   dto.frequency,
-      period:      { start, end },
+      type: 'payroll',
+      frequency: dto.frequency,
+      period: { start, end },
       generatedAt: new Date(),
       summary: {
-        totalWorkers:      workerMap.size,
-        totalHours:        Math.round(totalHours        * 100) / 100,
-        totalGrossPay:     Math.round(totalGrossPay     * 100) / 100,
-        totalDeductions:   Math.round(totalDeductions   * 100) / 100,
-        totalNetPay:       Math.round(totalNetPay       * 100) / 100,
+        totalWorkers: workerMap.size,
+        totalHours: Math.round(totalHours * 100) / 100,
+        totalGrossPay: Math.round(totalGrossPay * 100) / 100,
+        totalDeductions: Math.round(totalDeductions * 100) / 100,
+        totalNetPay: Math.round(totalNetPay * 100) / 100,
         totalEmployerCost: Math.round(totalEmployerCost * 100) / 100,
         byStatus,
       },
       workers: Array.from(workerMap.values()).map((w) => ({
         ...w,
-        totalGrossPay:   Math.round(w.totalGrossPay   * 100) / 100,
-        totalNetPay:     Math.round(w.totalNetPay     * 100) / 100,
+        totalGrossPay: Math.round(w.totalGrossPay * 100) / 100,
+        totalNetPay: Math.round(w.totalNetPay * 100) / 100,
         totalDeductions: Math.round(w.totalDeductions * 100) / 100,
       })),
     };
@@ -520,59 +686,64 @@ export class ReportsService {
         }),
       },
       include: {
-        company:  { select: { id: true, name: true, logoUrl: true } },
+        company: { select: { id: true, name: true, logoUrl: true } },
         expenses: { select: { amount: true, status: true, category: true } },
-        tasks:    { select: { status: true, estimatedHours: true, actualHours: true } },
-        _count:   { select: { teamMembers: true, tasks: true, floors: true } },
+        tasks: {
+          select: { status: true, estimatedHours: true, actualHours: true },
+        },
+        _count: { select: { teamMembers: true, tasks: true, floors: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    const totalBudget  = projects.reduce((s, p) => s + (p.budget  ?? 0), 0);
-    const totalSpent   = projects.reduce((s, p) => s + (p.spent   ?? 0), 0);
+    const totalBudget = projects.reduce((s, p) => s + (p.budget ?? 0), 0);
+    const totalSpent = projects.reduce((s, p) => s + (p.spent ?? 0), 0);
     const totalRemaining = projects.reduce((s, p) => s + (p.remaining ?? 0), 0);
 
     const byStatus = {
-      planning:   projects.filter((p) => p.status === 'planning').length,
-      active:     projects.filter((p) => p.status === 'active').length,
-      on_hold:    projects.filter((p) => p.status === 'on_hold').length,
-      completed:  projects.filter((p) => p.status === 'completed').length,
-      cancelled:  projects.filter((p) => p.status === 'cancelled').length,
+      planning: projects.filter((p) => p.status === 'planning').length,
+      active: projects.filter((p) => p.status === 'active').length,
+      on_hold: projects.filter((p) => p.status === 'on_hold').length,
+      completed: projects.filter((p) => p.status === 'completed').length,
+      cancelled: projects.filter((p) => p.status === 'cancelled').length,
     };
 
     return {
-      type:        'project_invoices',
-      frequency:   dto.frequency,
-      period:      { start, end },
+      type: 'project_invoices',
+      frequency: dto.frequency,
+      period: { start, end },
       generatedAt: new Date(),
       summary: {
-        totalProjects:   projects.length,
-        totalBudget:     Math.round(totalBudget    * 100) / 100,
-        totalSpent:      Math.round(totalSpent     * 100) / 100,
-        totalRemaining:  Math.round(totalRemaining * 100) / 100,
+        totalProjects: projects.length,
+        totalBudget: Math.round(totalBudget * 100) / 100,
+        totalSpent: Math.round(totalSpent * 100) / 100,
+        totalRemaining: Math.round(totalRemaining * 100) / 100,
         byStatus,
       },
       projects: projects.map((p) => {
         const approvedExpenses = p.expenses
           .filter((e) => e.status === 'approved')
           .reduce((s, e) => s + e.amount, 0);
-        const completedTasks = p.tasks.filter((t) => t.status === 'completed').length;
+        const completedTasks = p.tasks.filter(
+          (t) => t.status === 'completed',
+        ).length;
 
         return {
-          id:               p.id,
-          name:             p.name,
-          company:          p.company,
-          status:           p.status,
-          progress:         p.progress,
-          startDate:        p.startDate,
-          endDate:          p.endDate,
-          budget:           p.budget,
-          spent:            p.spent,
-          remaining:        p.remaining,
+          id: p.id,
+          name: p.name,
+          company: p.company,
+          status: p.status,
+          progress: p.progress,
+          startDate: p.startDate,
+          endDate: p.endDate,
+          budget: p.budget,
+          spent: p.spent,
+          remaining: p.remaining,
           approvedExpenses: Math.round(approvedExpenses * 100) / 100,
-          taskCompletion:   p.tasks.length > 0
-            ? Math.round((completedTasks / p.tasks.length) * 100)
-            : 0,
+          taskCompletion:
+            p.tasks.length > 0
+              ? Math.round((completedTasks / p.tasks.length) * 100)
+              : 0,
           counts: p._count,
         };
       }),
@@ -590,15 +761,15 @@ export class ReportsService {
   ) {
     if (companyIds.length === 0) {
       return {
-        type:        'worker_performance',
-        frequency:   dto.frequency,
-        period:      { start, end },
+        type: 'worker_performance',
+        frequency: dto.frequency,
+        period: { start, end },
         generatedAt: new Date(),
         summary: {
-          totalWorkers:      0,
+          totalWorkers: 0,
           avgAttendanceRate: '0%',
           avgTaskCompletion: '0%',
-          topPerformer:      null,
+          topPerformer: null,
         },
         workers: [],
       };
@@ -607,8 +778,8 @@ export class ReportsService {
     // Company scoped worker ids from accepted invitations + active project work + payroll history
     const acceptedInvitations = await this.prisma.invitation.findMany({
       where: {
-        role:       'worker',
-        status:     'accepted',
+        role: 'worker',
+        status: 'accepted',
         receiverId: { not: null },
       },
       select: { receiverId: true },
@@ -616,11 +787,11 @@ export class ReportsService {
 
     const workerIds = acceptedInvitations
       .map((i) => i.receiverId)
-      .filter(Boolean) as string[];
+      .filter(Boolean);
 
     const workers = await this.prisma.user.findMany({
       where: {
-        id:   { in: workerIds },
+        id: { in: workerIds },
         role: 'worker',
         OR: [
           {
@@ -653,8 +824,8 @@ export class ReportsService {
         ],
       },
       select: {
-        id:        true,
-        fullName:  true,
+        id: true,
+        fullName: true,
         avatarUrl: true,
         department: true,
         attendances: {
@@ -662,8 +833,8 @@ export class ReportsService {
             date: { gte: start, lte: end },
           },
           select: {
-            date:       true,
-            status:     true,
+            date: true,
+            status: true,
             totalHours: true,
           },
         },
@@ -673,18 +844,18 @@ export class ReportsService {
             ...(userRole === 'manager' && {
               project: {
                 teamMembers: {
-                  some: { userId, role: 'manager' }
-                }
-              }
+                  some: { userId, role: 'manager' },
+                },
+              },
             }),
           },
           select: {
-            id:           true,
-            status:       true,
-            priority:     true,
+            id: true,
+            status: true,
+            priority: true,
             estimatedHours: true,
-            actualHours:  true,
-            dueDate:      true,
+            actualHours: true,
+            dueDate: true,
           },
         },
         taskAssignees: {
@@ -694,8 +865,8 @@ export class ReportsService {
                 companyId: { in: companyIds },
                 ...(userRole === 'manager' && {
                   teamMembers: {
-                    some: { userId, role: 'manager' }
-                  }
+                    some: { userId, role: 'manager' },
+                  },
                 }),
               },
             },
@@ -717,75 +888,90 @@ export class ReportsService {
           },
           select: {
             reviewDecision: true,
-            submittedAt:    true,
+            submittedAt: true,
           },
         },
       },
     });
 
     const performanceData = workers.map((w) => {
-      const totalDays       = w.attendances.length;
-      const presentDays     = w.attendances.filter((a) => a.status === 'present').length;
-      const totalHours      = w.attendances.reduce((s, a) => s + (a.totalHours ?? 0), 0);
-      const attendanceRate  = totalDays > 0
-        ? Math.round((presentDays / totalDays) * 100)
-        : 0;
+      const totalDays = w.attendances.length;
+      const presentDays = w.attendances.filter(
+        (a) => a.status === 'present',
+      ).length;
+      const totalHours = w.attendances.reduce(
+        (s, a) => s + (a.totalHours ?? 0),
+        0,
+      );
+      const attendanceRate =
+        totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 0;
 
-      const totalTasks      = w.assignedTasks.length;
-      const completedTasks  = w.assignedTasks.filter((t) => t.status === 'completed').length;
-      const inProgressTasks = w.assignedTasks.filter((t) => t.status === 'in_progress').length;
-      const taskCompletion  = totalTasks > 0
-        ? Math.round((completedTasks / totalTasks) * 100)
-        : 0;
+      const totalTasks = w.assignedTasks.length;
+      const completedTasks = w.assignedTasks.filter(
+        (t) => t.status === 'completed',
+      ).length;
+      const inProgressTasks = w.assignedTasks.filter(
+        (t) => t.status === 'in_progress',
+      ).length;
+      const taskCompletion =
+        totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
-      const allSubTasks = w.taskAssignees.flatMap((assignee) => assignee.subTasks ?? []);
+      const allSubTasks = w.taskAssignees.flatMap(
+        (assignee) => assignee.subTasks ?? [],
+      );
       const totalSubTasks = allSubTasks.length;
-      const completedSubTasks = allSubTasks.filter((subTask) => subTask.status === 'completed').length;
-      const inProgressSubTasks = allSubTasks.filter((subTask) => subTask.status === 'in_progress').length;
-      const subTaskCompletion = totalSubTasks > 0
-        ? Math.round((completedSubTasks / totalSubTasks) * 100)
-        : 0;
+      const completedSubTasks = allSubTasks.filter(
+        (subTask) => subTask.status === 'completed',
+      ).length;
+      const inProgressSubTasks = allSubTasks.filter(
+        (subTask) => subTask.status === 'in_progress',
+      ).length;
+      const subTaskCompletion =
+        totalSubTasks > 0
+          ? Math.round((completedSubTasks / totalSubTasks) * 100)
+          : 0;
 
-      const approvedReports = w.taskReports.filter((r) => r.reviewDecision === 'approved').length;
-      const reportApprovalRate = w.taskReports.length > 0
-        ? Math.round((approvedReports / w.taskReports.length) * 100)
-        : 0;
+      const approvedReports = w.taskReports.filter(
+        (r) => r.reviewDecision === 'approved',
+      ).length;
+      const reportApprovalRate =
+        w.taskReports.length > 0
+          ? Math.round((approvedReports / w.taskReports.length) * 100)
+          : 0;
 
       // Overall performance score (weighted)
       const performanceScore = Math.round(
-        (attendanceRate * 0.4) +
-        (taskCompletion * 0.4) +
-        (reportApprovalRate * 0.2),
+        attendanceRate * 0.4 + taskCompletion * 0.4 + reportApprovalRate * 0.2,
       );
 
       return {
         worker: {
-          id:         w.id,
-          fullName:   w.fullName,
-          avatarUrl:  w.avatarUrl,
+          id: w.id,
+          fullName: w.fullName,
+          avatarUrl: w.avatarUrl,
           department: w.department,
         },
         attendance: {
           totalDays,
           presentDays,
           attendanceRate: `${attendanceRate}%`,
-          totalHours:     Math.round(totalHours * 100) / 100,
+          totalHours: Math.round(totalHours * 100) / 100,
         },
         tasks: {
-          total:        totalTasks,
-          completed:    completedTasks,
-          inProgress:   inProgressTasks,
+          total: totalTasks,
+          completed: completedTasks,
+          inProgress: inProgressTasks,
           completionRate: `${taskCompletion}%`,
         },
         subTasks: {
-          total:        totalSubTasks,
-          completed:    completedSubTasks,
-          inProgress:   inProgressSubTasks,
+          total: totalSubTasks,
+          completed: completedSubTasks,
+          inProgress: inProgressSubTasks,
           completionRate: `${subTaskCompletion}%`,
         },
         reports: {
-          total:        w.taskReports.length,
-          approved:     approvedReports,
+          total: w.taskReports.length,
+          approved: approvedReports,
           approvalRate: `${reportApprovalRate}%`,
         },
         performanceScore: `${performanceScore}%`,
@@ -794,36 +980,39 @@ export class ReportsService {
 
     // Sort by performance score desc
     performanceData.sort(
-      (a, b) =>
-        parseInt(b.performanceScore) - parseInt(a.performanceScore),
+      (a, b) => parseInt(b.performanceScore) - parseInt(a.performanceScore),
     );
 
-    const avgAttendance = performanceData.length > 0
-      ? Math.round(
-          performanceData.reduce(
-            (s, w) => s + parseInt(w.attendance.attendanceRate), 0,
-          ) / performanceData.length,
-        )
-      : 0;
+    const avgAttendance =
+      performanceData.length > 0
+        ? Math.round(
+            performanceData.reduce(
+              (s, w) => s + parseInt(w.attendance.attendanceRate),
+              0,
+            ) / performanceData.length,
+          )
+        : 0;
 
-    const avgTaskCompletion = performanceData.length > 0
-      ? Math.round(
-          performanceData.reduce(
-            (s, w) => s + parseInt(w.tasks.completionRate), 0,
-          ) / performanceData.length,
-        )
-      : 0;
+    const avgTaskCompletion =
+      performanceData.length > 0
+        ? Math.round(
+            performanceData.reduce(
+              (s, w) => s + parseInt(w.tasks.completionRate),
+              0,
+            ) / performanceData.length,
+          )
+        : 0;
 
     return {
-      type:        'worker_performance',
-      frequency:   dto.frequency,
-      period:      { start, end },
+      type: 'worker_performance',
+      frequency: dto.frequency,
+      period: { start, end },
       generatedAt: new Date(),
       summary: {
-        totalWorkers:       performanceData.length,
-        avgAttendanceRate:  `${avgAttendance}%`,
-        avgTaskCompletion:  `${avgTaskCompletion}%`,
-        topPerformer:       performanceData[0]?.worker ?? null,
+        totalWorkers: performanceData.length,
+        avgAttendanceRate: `${avgAttendance}%`,
+        avgTaskCompletion: `${avgTaskCompletion}%`,
+        topPerformer: performanceData[0]?.worker ?? null,
       },
       workers: performanceData,
     };
@@ -889,13 +1078,14 @@ export class ReportsService {
       orderBy: { expenseDate: 'desc' },
     });
 
-    const getExpenseTotal = (e: any) => Number(e.totalAmount ?? (Number(e.subtotal ?? 0) + Number(e.tax ?? 0)));
+    const getExpenseTotal = (e: any) =>
+      Number(e.totalAmount ?? Number(e.subtotal ?? 0) + Number(e.tax ?? 0));
 
-    const totalAmount    = expenses.reduce((s, e) => s + getExpenseTotal(e), 0);
+    const totalAmount = expenses.reduce((s, e) => s + getExpenseTotal(e), 0);
     const approvedAmount = expenses
       .filter((e) => e.status === 'APPROVED' || e.status === 'PAID')
       .reduce((s, e) => s + getExpenseTotal(e), 0);
-    const pendingAmount  = expenses
+    const pendingAmount = expenses
       .filter((e) => e.status === 'DRAFT' || e.status === 'SUBMITTED')
       .reduce((s, e) => s + getExpenseTotal(e), 0);
     const rejectedAmount = expenses
@@ -905,7 +1095,7 @@ export class ReportsService {
     // Category breakdown
     const categoryMap = new Map<string, number>();
     for (const e of expenses) {
-      const cat = e.category as string;
+      const cat = e.category;
       categoryMap.set(cat, (categoryMap.get(cat) ?? 0) + getExpenseTotal(e));
     }
 
@@ -917,50 +1107,48 @@ export class ReportsService {
     );
 
     return {
-      type:        'expense',
-      frequency:   dto.frequency,
-      period:      { start, end },
+      type: 'expense',
+      frequency: dto.frequency,
+      period: { start, end },
       generatedAt: new Date(),
       summary: {
-        total:          expenses.length,
-        totalAmount:    Math.round(totalAmount    * 100) / 100,
+        total: expenses.length,
+        totalAmount: Math.round(totalAmount * 100) / 100,
         approvedAmount: Math.round(approvedAmount * 100) / 100,
-        pendingAmount:  Math.round(pendingAmount  * 100) / 100,
+        pendingAmount: Math.round(pendingAmount * 100) / 100,
         rejectedAmount: Math.round(rejectedAmount * 100) / 100,
         byCategory,
       },
       expenses: expenses.map((e) => ({
-        id:          e.id,
-        worker:      e.createdBy,
+        id: e.id,
+        worker: e.createdBy,
         description: e.title,
-        category:    e.category,
-        subtotal:    Number(e.subtotal ?? 0),
-        tax:         Number(e.tax ?? 0),
+        category: e.category,
+        subtotal: Number(e.subtotal ?? 0),
+        tax: Number(e.tax ?? 0),
         totalAmount: getExpenseTotal(e),
-        amount:      getExpenseTotal(e),
-        project:     e.project,
-        date:        e.expenseDate,
-        status:      e.status,
-        receiptUrl:  e.receiptUrl,
+        amount: getExpenseTotal(e),
+        project: e.project,
+        date: e.expenseDate,
+        status: e.status,
+        receiptUrl: e.receiptUrl,
       })),
     };
   }
 
   // ─── Export All Data ──────────────────────────────────────────────────────
-  async exportAllData(
-    dto: ExportReportDto,
-    userId: string,
-    userRole: string,
-  ) {
-    const start      = dto.startDate ? new Date(dto.startDate) : new Date(new Date().getFullYear(), 0, 1);
-    const end        = dto.endDate   ? new Date(dto.endDate)   : new Date();
+  async exportAllData(dto: ExportReportDto, userId: string, userRole: string) {
+    const start = dto.startDate
+      ? new Date(dto.startDate)
+      : new Date(new Date().getFullYear(), 0, 1);
+    const end = dto.endDate ? new Date(dto.endDate) : new Date();
 
     // Reuse the normal report flow so export follows the same permissions and filters.
     const generateDto = {
-      type:      dto.type ?? ReportType.expense,
+      type: dto.type ?? ReportType.expense,
       frequency: 'monthly' as any,
       startDate: start.toISOString(),
-      endDate:   end.toISOString(),
+      endDate: end.toISOString(),
       companyId: dto.companyId,
       projectId: dto.projectId,
     };

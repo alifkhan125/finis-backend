@@ -1,4 +1,14 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/guards/jwt.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
@@ -27,10 +37,7 @@ export class QuotesController {
   ) {}
 
   @Post()
-  createQuote(
-    @Body() dto: CreateQuoteDto,
-    @CurrentUser('id') userId: string,
-  ) {
+  createQuote(@Body() dto: CreateQuoteDto, @CurrentUser('id') userId: string) {
     return this.quotesService.createQuote(dto, userId);
   }
 
@@ -43,7 +50,13 @@ export class QuotesController {
     @Query('workCategoryId') workCategoryId?: string,
     @Query('workItemId') workItemId?: string,
   ) {
-    return this.quotesService.getQuotes(userId, { projectType, propertyType, unitType, workCategoryId, workItemId });
+    return this.quotesService.getQuotes(userId, {
+      projectType,
+      propertyType,
+      unitType,
+      workCategoryId,
+      workItemId,
+    });
   }
 
   @Get('selectors')
@@ -70,7 +83,10 @@ export class QuotesController {
 
   @Put('measurement-types/:id')
   @Roles(UserRole.admin, UserRole.super_admin)
-  updateMeasurementType(@Param('id') id: string, @Body() dto: UpdateQuoteMeasurementTypeDto) {
+  updateMeasurementType(
+    @Param('id') id: string,
+    @Body() dto: UpdateQuoteMeasurementTypeDto,
+  ) {
     return this.quoteLibraryService.updateMeasurementType(id, dto);
   }
 
@@ -99,7 +115,10 @@ export class QuotesController {
 
   @Put('work-categories/:id')
   @Roles(UserRole.admin, UserRole.super_admin)
-  updateWorkCategory(@Param('id') id: string, @Body() dto: UpdateQuoteWorkCategoryDto) {
+  updateWorkCategory(
+    @Param('id') id: string,
+    @Body() dto: UpdateQuoteWorkCategoryDto,
+  ) {
     return this.quoteLibraryService.updateWorkCategory(id, dto);
   }
 
@@ -136,14 +155,17 @@ export class QuotesController {
   }
 
   @Post('work-items')
-  @Roles(UserRole.admin, UserRole.super_admin )
+  @Roles(UserRole.admin, UserRole.super_admin)
   createWorkItem(@Body() dto: CreateQuoteWorkItemDto) {
     return this.quoteLibraryService.createWorkItem(dto);
   }
 
   @Post('work-items/quick-add')
   @Roles(UserRole.admin, UserRole.super_admin, UserRole.manager)
-  quickAddWorkItemAndQuote(@Body() dto: QuickAddQuoteWorkItemDto, @CurrentUser('id') userId: string) {
+  quickAddWorkItemAndQuote(
+    @Body() dto: QuickAddQuoteWorkItemDto,
+    @CurrentUser('id') userId: string,
+  ) {
     return this.quoteLibraryService.quickAddWorkItemAndQuote(dto, userId);
   }
 
@@ -160,17 +182,12 @@ export class QuotesController {
   }
 
   @Get(':id')
-  getQuoteById(
-    @Param('id') id: string,
-  ) {
+  getQuoteById(@Param('id') id: string) {
     return this.quotesService.getQuoteById(id);
   }
 
   @Put(':id')
-  updateQuote(
-    @Param('id') id: string,
-    @Body() dto: UpdateQuoteDto,
-  ) {
+  updateQuote(@Param('id') id: string, @Body() dto: UpdateQuoteDto) {
     return this.quotesService.updateQuote(id, dto);
   }
 

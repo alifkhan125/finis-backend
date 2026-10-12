@@ -62,10 +62,18 @@ export class SuperAdminProjectService {
 
     // Current period counts
     const [total, active, completed, delayed] = await Promise.all([
-      this.prisma.project.count({ where: { createdAt: { gte: from, lte: to } } }),
-      this.prisma.project.count({ where: { status: 'active', createdAt: { gte: from, lte: to } } }),
-      this.prisma.project.count({ where: { status: 'completed', createdAt: { gte: from, lte: to } } }),
-      this.prisma.project.count({ where: { status: 'delayed', createdAt: { gte: from, lte: to } } }),
+      this.prisma.project.count({
+        where: { createdAt: { gte: from, lte: to } },
+      }),
+      this.prisma.project.count({
+        where: { status: 'active', createdAt: { gte: from, lte: to } },
+      }),
+      this.prisma.project.count({
+        where: { status: 'completed', createdAt: { gte: from, lte: to } },
+      }),
+      this.prisma.project.count({
+        where: { status: 'delayed', createdAt: { gte: from, lte: to } },
+      }),
     ]);
 
     // Previous period for % change
@@ -73,12 +81,30 @@ export class SuperAdminProjectService {
     const prevFrom = new Date(from.getTime() - diffMs);
     const prevTo = new Date(from.getTime());
 
-    const [prevTotal, prevActive, prevCompleted, prevDelayed] = await Promise.all([
-      this.prisma.project.count({ where: { createdAt: { gte: prevFrom, lte: prevTo } } }),
-      this.prisma.project.count({ where: { status: 'active', createdAt: { gte: prevFrom, lte: prevTo } } }),
-      this.prisma.project.count({ where: { status: 'completed', createdAt: { gte: prevFrom, lte: prevTo } } }),
-      this.prisma.project.count({ where: { status: 'delayed', createdAt: { gte: prevFrom, lte: prevTo } } }),
-    ]);
+    const [prevTotal, prevActive, prevCompleted, prevDelayed] =
+      await Promise.all([
+        this.prisma.project.count({
+          where: { createdAt: { gte: prevFrom, lte: prevTo } },
+        }),
+        this.prisma.project.count({
+          where: {
+            status: 'active',
+            createdAt: { gte: prevFrom, lte: prevTo },
+          },
+        }),
+        this.prisma.project.count({
+          where: {
+            status: 'completed',
+            createdAt: { gte: prevFrom, lte: prevTo },
+          },
+        }),
+        this.prisma.project.count({
+          where: {
+            status: 'delayed',
+            createdAt: { gte: prevFrom, lte: prevTo },
+          },
+        }),
+      ]);
 
     const calcChange = (current: number, prev: number) => {
       if (prev === 0) return current > 0 ? 100 : 0;
@@ -89,7 +115,10 @@ export class SuperAdminProjectService {
       period,
       total: { count: total, change: calcChange(total, prevTotal) },
       active: { count: active, change: calcChange(active, prevActive) },
-      completed: { count: completed, change: calcChange(completed, prevCompleted) },
+      completed: {
+        count: completed,
+        change: calcChange(completed, prevCompleted),
+      },
       delayed: { count: delayed, change: calcChange(delayed, prevDelayed) },
     };
   }
@@ -180,7 +209,13 @@ export class SuperAdminProjectService {
             address: true,
             contacts: {
               where: { isPrimary: true },
-              select: { id: true, fullName: true, role: true, email: true, phone: true },
+              select: {
+                id: true,
+                fullName: true,
+                role: true,
+                email: true,
+                phone: true,
+              },
               take: 1,
             },
           },
@@ -231,7 +266,10 @@ export class SuperAdminProjectService {
   }
 
   async getFloorPlan(projectId: string) {
-    const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { id: true } });
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { id: true },
+    });
     if (!project) throw new NotFoundException('Project not found');
 
     const floors = await this.prisma.floor.findMany({
@@ -260,7 +298,8 @@ export class SuperAdminProjectService {
       taskCounts: {
         total: floor.tasks.length,
         completed: floor.tasks.filter((t) => t.status === 'completed').length,
-        inProgress: floor.tasks.filter((t) => t.status === 'in_progress').length,
+        inProgress: floor.tasks.filter((t) => t.status === 'in_progress')
+          .length,
         notStarted: floor.tasks.filter((t) => t.status === 'pending').length,
       },
       units: floor.units.map((unit) => ({
@@ -273,7 +312,8 @@ export class SuperAdminProjectService {
         taskCounts: {
           total: unit.tasks.length,
           completed: unit.tasks.filter((t) => t.status === 'completed').length,
-          inProgress: unit.tasks.filter((t) => t.status === 'in_progress').length,
+          inProgress: unit.tasks.filter((t) => t.status === 'in_progress')
+            .length,
           notStarted: unit.tasks.filter((t) => t.status === 'pending').length,
         },
       })),
@@ -288,7 +328,11 @@ export class SuperAdminProjectService {
           orderBy: { floorNumber: 'asc' },
           include: {
             tasks: {
-              include: { assignee: { select: { id: true, fullName: true, avatarUrl: true } } },
+              include: {
+                assignee: {
+                  select: { id: true, fullName: true, avatarUrl: true },
+                },
+              },
               orderBy: { createdAt: 'desc' },
             },
             _count: { select: { units: true } },
@@ -356,10 +400,16 @@ export class SuperAdminProjectService {
         return date.toLocaleDateString('en-US', { weekday: 'short' });
       } else if (period === 'monthly') {
         // group by date
-        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        return date.toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+        });
       } else {
         // yearly or custom → group by month
-        return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+        return date.toLocaleDateString('en-US', {
+          month: 'short',
+          year: '2-digit',
+        });
       }
     };
 
@@ -404,14 +454,24 @@ export class SuperAdminProjectService {
       }
     } else if (period === 'monthly') {
       while (cursor <= to) {
-        labels.push(cursor.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+        labels.push(
+          cursor.toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+          }),
+        );
         cursor.setDate(cursor.getDate() + 1);
       }
     } else {
       // yearly / custom → monthly slots
       cursor.setDate(1);
       while (cursor <= to) {
-        labels.push(cursor.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }));
+        labels.push(
+          cursor.toLocaleDateString('en-US', {
+            month: 'short',
+            year: '2-digit',
+          }),
+        );
         cursor.setMonth(cursor.getMonth() + 1);
       }
     }
@@ -422,7 +482,9 @@ export class SuperAdminProjectService {
   // ─── APPROVALS ─────────────────────────────────────────────────────────────
   // Image 5 — Pending + Past approvals for a project
   async getProjectApprovals(projectId: string) {
-    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+    });
     if (!project) throw new NotFoundException('Project not found');
 
     const reports = await this.prisma.taskReport.findMany({
@@ -484,7 +546,9 @@ export class SuperAdminProjectService {
     reviewedBy: string,
     description?: string,
   ) {
-    const report = await this.prisma.taskReport.findUnique({ where: { id: reportId } });
+    const report = await this.prisma.taskReport.findUnique({
+      where: { id: reportId },
+    });
     if (!report) throw new NotFoundException('Report not found');
     if (report.reviewDecision !== 'pending')
       throw new ForbiddenException('Report already reviewed');
@@ -515,8 +579,14 @@ export class SuperAdminProjectService {
 
   // ─── DOCUMENTS ─────────────────────────────────────────────────────────────
   // Image 7 — Documents tab: list, upload, delete, search, filter by category
-  async getProjectDocuments(projectId: string, search?: string, category?: string) {
-    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+  async getProjectDocuments(
+    projectId: string,
+    search?: string,
+    category?: string,
+  ) {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+    });
     if (!project) throw new NotFoundException('Project not found');
 
     const documents = await this.prisma.document.findMany({
@@ -526,7 +596,9 @@ export class SuperAdminProjectService {
           fileName: { contains: search, mode: 'insensitive' },
         }),
         // category is stored in fileType field for now; or add a separate field later
-        ...(category && { fileType: { contains: category, mode: 'insensitive' } }),
+        ...(category && {
+          fileType: { contains: category, mode: 'insensitive' },
+        }),
       },
       orderBy: { uploadedAt: 'desc' },
       include: {
@@ -561,9 +633,10 @@ export class SuperAdminProjectService {
       });
 
       return {
-        message: newStatus === 'suspended'
-          ? `Project "${updated.name}" has been suspended`
-          : `Project "${updated.name}" has been reactivated`,
+        message:
+          newStatus === 'suspended'
+            ? `Project "${updated.name}" has been suspended`
+            : `Project "${updated.name}" has been reactivated`,
         project: updated,
       };
     });

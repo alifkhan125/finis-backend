@@ -50,7 +50,15 @@ export class TaskController {
     @Query('page') page = '1',
     @Query('limit') limit = '10',
   ) {
-    return this.taskService.getTasks(userId, userRole, status, search, projectId, +page, +limit);
+    return this.taskService.getTasks(
+      userId,
+      userRole,
+      status,
+      search,
+      projectId,
+      +page,
+      +limit,
+    );
   }
 
   /** GET /admin/tasks/:id — task details with reports and sub tasks */
@@ -127,7 +135,13 @@ export class TaskController {
     @CurrentUser('id') userId: string,
     @CurrentUser('role') userRole: string,
   ) {
-    return this.taskService.reviewSubTaskCreation(id, subTaskId, dto, userId, userRole);
+    return this.taskService.reviewSubTaskCreation(
+      id,
+      subTaskId,
+      dto,
+      userId,
+      userRole,
+    );
   }
 
   /** GET /admin/tasks/:id/available-workers */
@@ -139,7 +153,13 @@ export class TaskController {
     @Query('search') search?: string,
     @Query('unitId') unitId?: string,
   ) {
-    return this.taskService.getAvailableWorkers(id, userId, userRole, search, unitId);
+    return this.taskService.getAvailableWorkers(
+      id,
+      userId,
+      userRole,
+      search,
+      unitId,
+    );
   }
 
   /** PUT /admin/tasks/:id/approval — task creation approval/rejection */
@@ -175,7 +195,10 @@ export class TaskController {
     @UploadedFile() file?: Express.Multer.File,
   ) {
     const uploadedFile = file
-      ? { ...file, filename: await this.storageService.uploadFile(file, 'task-expenses') }
+      ? {
+          ...file,
+          filename: await this.storageService.uploadFile(file, 'task-expenses'),
+        }
       : undefined;
     return this.taskService.updateTask(id, dto, userId, userRole, uploadedFile);
   }
@@ -189,7 +212,13 @@ export class TaskController {
     @CurrentUser('id') userId: string,
     @CurrentUser('role') userRole: string,
   ) {
-    return this.taskService.reviewTaskReport(id, reportId, dto, userId, userRole);
+    return this.taskService.reviewTaskReport(
+      id,
+      reportId,
+      dto,
+      userId,
+      userRole,
+    );
   }
 
   /** PUT /admin/tasks/:id/completion-review — final approval after all units complete */

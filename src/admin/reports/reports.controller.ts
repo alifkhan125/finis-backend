@@ -7,7 +7,10 @@ import { Roles } from '../../auth/decorators/roles.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { UserRole } from '../../generated/prisma/client';
 import { ReportsService } from '../../super-admin/reports/reports.service';
-import { AdminExportReportDto, AdminGenerateReportDto } from './dto/admin-reports.dto';
+import {
+  AdminExportReportDto,
+  AdminGenerateReportDto,
+} from './dto/admin-reports.dto';
 
 @Controller('admin/reports')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -54,10 +57,15 @@ export class AdminReportsController {
     @CurrentUser('role') userRole: string,
     @Res() res: Response,
   ) {
-    return this.reportsService.exportReportPdf(dto, userId, userRole).then(({ buffer, filename }) => {
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-      return res.send(buffer);
-    });
+    return this.reportsService
+      .exportReportPdf(dto, userId, userRole)
+      .then(({ buffer, filename }) => {
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader(
+          'Content-Disposition',
+          `attachment; filename="${filename}"`,
+        );
+        return res.send(buffer);
+      });
   }
 }

@@ -57,7 +57,8 @@ export class CreateCompanyDto {
 
   @IsOptional()
   @IsString()
-  contactPhone?: string;}
+  contactPhone?: string;
+}
 
 export class UpdateCompanyDto {
   @IsOptional()

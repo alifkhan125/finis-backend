@@ -44,7 +44,9 @@ export class CreateInventoryItemDto {
   unit?: string;
 }
 
-export class UpdateInventoryItemDto extends PartialType(CreateInventoryItemDto) {}
+export class UpdateInventoryItemDto extends PartialType(
+  CreateInventoryItemDto,
+) {}
 
 // positive quantity = restock | negative quantity = usage
 export class UpdateStockDto {
@@ -62,9 +64,9 @@ export class UpdateStockDto {
 // ─────────────────────────────────────────────
 
 export enum DamageStatus {
-  UNRESOLVED  = 'unresolved',
-  IN_REPAIR   = 'in_repair',
-  RESOLVED    = 'resolved',
+  UNRESOLVED = 'unresolved',
+  IN_REPAIR = 'in_repair',
+  RESOLVED = 'resolved',
   WRITTEN_OFF = 'written_off',
 }
 

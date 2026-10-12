@@ -84,7 +84,10 @@ export class InventoryController {
    */
   @Get('details')
   @Roles('super_admin')
-  getInventoryDetails(@Request() req: any, @Query() query: InventoryQueryDto & PaginationDto) {
+  getInventoryDetails(
+    @Request() req: any,
+    @Query() query: InventoryQueryDto & PaginationDto,
+  ) {
     return this.inventoryService.getInventoryDetails(req.user, query);
   }
 
@@ -95,7 +98,10 @@ export class InventoryController {
    */
   @Get('low-stock')
   @Roles('super_admin', 'admin', 'manager', 'worker', 'viewer')
-  getLowStockAlerts(@Request() req: any, @Query('projectId') projectId?: string) {
+  getLowStockAlerts(
+    @Request() req: any,
+    @Query('projectId') projectId?: string,
+  ) {
     return this.inventoryService.getLowStockAlerts(req.user, projectId);
   }
 

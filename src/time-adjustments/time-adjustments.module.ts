@@ -6,6 +6,6 @@ import { PrismaModule } from '../prisma/prisma.module';
 @Module({
   imports: [PrismaModule],
   controllers: [TimeAdjustmentsController],
-  providers: [TimeAdjustmentsService]
+  providers: [TimeAdjustmentsService],
 })
 export class TimeAdjustmentsModule {}

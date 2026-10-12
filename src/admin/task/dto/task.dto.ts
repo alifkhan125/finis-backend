@@ -126,7 +126,7 @@ export class UpdateTaskDto {
 }
 
 export class UpdateTaskStatusDto {
-@IsEnum(TaskStatus)
+  @IsEnum(TaskStatus)
   status!: TaskStatus;
 }
 
@@ -175,22 +175,22 @@ export class CreateSubTaskDto {
 export class UpdateSubTaskDto {
   @IsOptional()
   @IsString()
-  @Transform(({ value }) => value === '' ? undefined : value)
+  @Transform(({ value }) => (value === '' ? undefined : value))
   title?: string;
 
   @IsOptional()
   @IsString()
-  @Transform(({ value }) => value === '' ? undefined : value)
+  @Transform(({ value }) => (value === '' ? undefined : value))
   description?: string;
 
   @IsOptional()
   @IsEnum(TaskPriority)
-  @Transform(({ value }) => value === '' ? undefined : value)
+  @Transform(({ value }) => (value === '' ? undefined : value))
   priority?: TaskPriority;
 
   @IsOptional()
   @IsString()
-  @Transform(({ value }) => value === '' ? undefined : value)
+  @Transform(({ value }) => (value === '' ? undefined : value))
   dueDate?: string;
 }
 
@@ -221,4 +221,3 @@ export class ToggleTaskUnitCompletionDto {
   @IsBoolean()
   completed?: boolean;
 }
-

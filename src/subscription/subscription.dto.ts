@@ -25,4 +25,4 @@ export class MobileSubscribeDto {
 export class MobileConfirmDto {
   @IsString()
   subscriptionId!: string;
-}
+}

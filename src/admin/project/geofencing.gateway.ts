@@ -40,12 +40,12 @@ interface WorkerState {
   status: WorkerStatus;
 
   // Time tracking — শুধু zone এর ভেতরে থাকার সময়
-  zoneEnteredAt: Date | null;     // কখন zone এ ঢুকেছে
-  totalZoneSeconds: number;       // মোট zone এ থাকার seconds
+  zoneEnteredAt: Date | null; // কখন zone এ ঢুকেছে
+  totalZoneSeconds: number; // মোট zone এ থাকার seconds
 
   // Session
-  sessionId: string | null;       // current attendanceSession id
-  trackingActive: boolean;        // check-in হলে true, check-out হলে false
+  sessionId: string | null; // current attendanceSession id
+  trackingActive: boolean; // check-in হলে true, check-out হলে false
 
   // Violation
   hasActiveViolation: boolean;
@@ -66,8 +66,10 @@ function pointInPolygon(
 ): boolean {
   let inside = false;
   for (let i = 0, j = coords.length - 1; i < coords.length; j = i++) {
-    const xi = coords[i].lat, yi = coords[i].lng;
-    const xj = coords[j].lat, yj = coords[j].lng;
+    const xi = coords[i].lat,
+      yi = coords[i].lng;
+    const xj = coords[j].lat,
+      yj = coords[j].lng;
     if (
       yi > lng !== yj > lng &&
       lat < ((xj - xi) * (lng - yi)) / (yj - yi) + xi
@@ -80,14 +82,20 @@ function pointInPolygon(
 function parsePolygonCoords(raw: any): { lat: number; lng: number }[] {
   if (Array.isArray(raw)) return raw;
   if (typeof raw === 'string') {
-    try { return JSON.parse(raw); } catch { return []; }
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return [];
+    }
   }
   return [];
 }
 
 function haversineDistance(
-  lat1: number, lng1: number,
-  lat2: number, lng2: number,
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number,
 ): number {
   const R = 6371000;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -95,12 +103,15 @@ function haversineDistance(
   const a =
     Math.sin(dLat / 2) ** 2 +
     Math.cos((lat1 * Math.PI) / 180) *
-    Math.cos((lat2 * Math.PI) / 180) *
-    Math.sin(dLng / 2) ** 2;
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function polygonCenter(coords: { lat: number; lng: number }[]): { lat: number; lng: number } {
+function polygonCenter(coords: { lat: number; lng: number }[]): {
+  lat: number;
+  lng: number;
+} {
   const lat = coords.reduce((s, c) => s + c.lat, 0) / coords.length;
   const lng = coords.reduce((s, c) => s + c.lng, 0) / coords.length;
   return { lat, lng };
@@ -130,7 +141,10 @@ function pointToSegmentDistanceMeters(
     return Math.sqrt((pxm - ax) ** 2 + (pym - ay) ** 2);
   }
 
-  const t = Math.max(0, Math.min(1, ((pxm - ax) * dx + (pym - ay) * dy) / (dx * dx + dy * dy)));
+  const t = Math.max(
+    0,
+    Math.min(1, ((pxm - ax) * dx + (pym - ay) * dy) / (dx * dx + dy * dy)),
+  );
   const projX = ax + t * dx;
   const projY = ay + t * dy;
   return Math.sqrt((pxm - projX) ** 2 + (pym - projY) ** 2);
@@ -147,7 +161,14 @@ function distanceToPolygonBoundaryMeters(
   for (let i = 0; i < coords.length; i++) {
     const current = coords[i];
     const next = coords[(i + 1) % coords.length];
-    const distance = pointToSegmentDistanceMeters(lat, lng, current.lat, current.lng, next.lat, next.lng);
+    const distance = pointToSegmentDistanceMeters(
+      lat,
+      lng,
+      current.lat,
+      current.lng,
+      next.lat,
+      next.lng,
+    );
     if (distance < minDistance) {
       minDistance = distance;
     }
@@ -546,7 +567,11 @@ export class GeofencingGateway
     }
 
     const payload = {
-      worker: { id: user.id, fullName: user.fullName, avatarUrl: user.avatarUrl },
+      worker: {
+        id: user.id,
+        fullName: user.fullName,
+        avatarUrl: user.avatarUrl,
+      },
       isInsideZone: isInsideZone.inside,
       zoneName: isInsideZone.zoneName,
       status: isInsideZone.inside ? 'inside' : 'outside',
@@ -556,27 +581,29 @@ export class GeofencingGateway
     };
 
     this.server.to(`project_${projectId}`).emit('worker_checked_in', payload);
-      client.emit('check_in_confirmed', {
-        message: isInsideZone.inside
-          ? `✅ Checked in to ${isInsideZone.zoneName}`
-          : '⚠️ Checked in but outside zone boundaries',
-        sessionId: session.id,
-        ...payload,
-      });
+    client.emit('check_in_confirmed', {
+      message: isInsideZone.inside
+        ? `✅ Checked in to ${isInsideZone.zoneName}`
+        : '⚠️ Checked in but outside zone boundaries',
+      sessionId: session.id,
+      ...payload,
+    });
 
-      await this.notificationsService.send({
-        userId: user.id,
-        title: isInsideZone.inside ? 'Inside zone' : 'Outside zone',
-        body: isInsideZone.inside
-          ? `You are inside ${isInsideZone.zoneName ?? 'the work zone'}.`
-          : 'You are outside the work zone.',
-        type: 'geofence',
-        refId: projectId,
-        refType: 'geofence',
-      });
+    await this.notificationsService.send({
+      userId: user.id,
+      title: isInsideZone.inside ? 'Inside zone' : 'Outside zone',
+      body: isInsideZone.inside
+        ? `You are inside ${isInsideZone.zoneName ?? 'the work zone'}.`
+        : 'You are outside the work zone.',
+      type: 'geofence',
+      refId: projectId,
+      refType: 'geofence',
+    });
 
-      console.log(`🟢 CHECK IN: ${user.fullName} | Zone: ${isInsideZone.inside ? isInsideZone.zoneName : 'Outside'}`);
-    }
+    console.log(
+      `🟢 CHECK IN: ${user.fullName} | Zone: ${isInsideZone.inside ? isInsideZone.zoneName : 'Outside'}`,
+    );
+  }
 
   // ─── CHECK OUT ──────────────────────────────────────────────────────────────
 
@@ -668,7 +695,9 @@ export class GeofencingGateway
       ...payload,
     });
 
-    console.log(`🔴 CHECK OUT: ${user.fullName} | Zone Hours: ${formatSeconds(finalZoneSeconds)}`);
+    console.log(
+      `🔴 CHECK OUT: ${user.fullName} | Zone Hours: ${formatSeconds(finalZoneSeconds)}`,
+    );
   }
 
   // ─── LOCATION UPDATE ────────────────────────────────────────────────────────
@@ -719,7 +748,14 @@ export class GeofencingGateway
       state.status = 'inside';
       state.hasActiveViolation = false;
 
-      await this.createLocationLog(user.id, currentZone?.id ?? null, lat, lng, 'in_zone', true);
+      await this.createLocationLog(
+        user.id,
+        currentZone?.id ?? null,
+        lat,
+        lng,
+        'in_zone',
+        true,
+      );
 
       this.server.to(`project_${projectId}`).emit('zone_restored', {
         workerId: user.id,
@@ -756,14 +792,23 @@ export class GeofencingGateway
 
       // outside-zone log
       const nearestZone = await this.getNearestZone(lat, lng, projectId);
-      const outsideLog = await this.createLocationLog(user.id, nearestZone?.id ?? null, lat, lng, 'out_of_zone', false);
+      const outsideLog = await this.createLocationLog(
+        user.id,
+        nearestZone?.id ?? null,
+        lat,
+        lng,
+        'out_of_zone',
+        false,
+      );
       state.lastOutsideLogId = outsideLog?.id ?? null;
 
       // Violation — একবারই create করো
       if (!state.hasActiveViolation && nearestZone) {
         const coords = parsePolygonCoords(nearestZone.polygonCoords);
         const center = coords.length > 0 ? polygonCenter(coords) : { lat, lng };
-        const distanceM = Math.round(haversineDistance(lat, lng, center.lat, center.lng));
+        const distanceM = Math.round(
+          haversineDistance(lat, lng, center.lat, center.lng),
+        );
 
         await this.prisma.geofenceViolation.create({
           data: {
@@ -799,10 +844,12 @@ export class GeofencingGateway
 
       // Paused state persist করো, যাতে re-enter করলে এখান থেকে continue করা যায়
       if (state.sessionId) {
-        await this.prisma.attendanceSession.update({
-          where: { id: state.sessionId },
-          data: { zoneSeconds: state.totalZoneSeconds },
-        }).catch(() => {});
+        await this.prisma.attendanceSession
+          .update({
+            where: { id: state.sessionId },
+            data: { zoneSeconds: state.totalZoneSeconds },
+          })
+          .catch(() => {});
       }
 
       console.log(`⚠️ ${user.fullName} EXITED zone`);
@@ -845,7 +892,7 @@ export class GeofencingGateway
       lng,
       isInsideZone: isInsideAny,
       zoneName: isInsideAny ? zoneResult.zoneName : null,
-      status: workerStatus,        // 'inside' | 'site' | 'outside'
+      status: workerStatus, // 'inside' | 'site' | 'outside'
       totalZoneHours: secondsToHours(currentZoneSeconds),
       totalZoneDisplay: formatSeconds(currentZoneSeconds),
       timestamp: now,
@@ -1028,7 +1075,11 @@ export class GeofencingGateway
       if (coords.length < 3) continue;
 
       const isInsidePolygon = pointInPolygon(lat, lng, coords);
-      const distanceToBoundary = distanceToPolygonBoundaryMeters(lat, lng, coords);
+      const distanceToBoundary = distanceToPolygonBoundaryMeters(
+        lat,
+        lng,
+        coords,
+      );
 
       if (isInsidePolygon || distanceToBoundary <= BUFFER_METERS) {
         return { inside: true, zone: geo, zoneName: geo.zoneName };
@@ -1115,7 +1166,10 @@ export class GeofencingGateway
       select: { id: true, loggedAt: true },
     });
     if (!log) return;
-    const durationSeconds = Math.max(0, Math.floor((now.getTime() - log.loggedAt.getTime()) / 1000));
+    const durationSeconds = Math.max(
+      0,
+      Math.floor((now.getTime() - log.loggedAt.getTime()) / 1000),
+    );
     await this.prisma.locationLog.update({
       where: { id: logId },
       data: { durationSeconds },
@@ -1251,7 +1305,11 @@ export class GeofencingGateway
       existing.zoneEnteredAt = now;
       existing.hasActiveViolation = false;
       if (existing.lastOutsideLogId) {
-        void this.closeOutsideLog(existing.userId, existing.lastOutsideLogId, now);
+        void this.closeOutsideLog(
+          existing.userId,
+          existing.lastOutsideLogId,
+          now,
+        );
         existing.lastOutsideLogId = null;
       }
     }

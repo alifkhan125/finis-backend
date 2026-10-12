@@ -14,7 +14,7 @@ export class ProfileService {
   constructor(
     private prisma: PrismaService,
     private s3: StorageService,
-  ) { }
+  ) {}
 
   async getProfile(userId: string) {
     const user = await this.prisma.user.findUnique({
@@ -98,7 +98,9 @@ export class ProfileService {
 
   async changePassword(userId: string, dto: ChangePasswordDto) {
     if (dto.newPassword !== dto.confirmPassword) {
-      throw new BadRequestException('New password and confirm password do not match');
+      throw new BadRequestException(
+        'New password and confirm password do not match',
+      );
     }
 
     if (dto.newPassword.length < 6) {
@@ -108,8 +110,12 @@ export class ProfileService {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
 
-    const isMatch = await bcrypt.compare(dto.currentPassword, user.passwordHash);
-    if (!isMatch) throw new UnauthorizedException('Current password is incorrect');
+    const isMatch = await bcrypt.compare(
+      dto.currentPassword,
+      user.passwordHash,
+    );
+    if (!isMatch)
+      throw new UnauthorizedException('Current password is incorrect');
 
     const newHash = await bcrypt.hash(dto.newPassword, 10);
 

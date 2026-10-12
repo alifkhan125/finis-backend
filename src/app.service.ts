@@ -202,21 +202,29 @@ export class AppService {
     const usedMem = totalMem - freeMem;
     const cpus = os.cpus();
     const loadAvg = os.loadavg();
-    
+
     // CPU usage approx based on loadavg (1 min) relative to cores
-    const cpuLoad = Math.min(100, Math.max(0, Math.round((loadAvg[0] / cpus.length) * 100)));
-    
+    const cpuLoad = Math.min(
+      100,
+      Math.max(0, Math.round((loadAvg[0] / cpus.length) * 100)),
+    );
+
     const uptimeSecs = os.uptime();
     let uptimeFormatted = '';
-    if (uptimeSecs < 3600) uptimeFormatted = `${Math.floor(uptimeSecs / 60)} mins`;
-    else if (uptimeSecs < 86400) uptimeFormatted = `${Math.floor(uptimeSecs / 3600)} hrs`;
+    if (uptimeSecs < 3600)
+      uptimeFormatted = `${Math.floor(uptimeSecs / 60)} mins`;
+    else if (uptimeSecs < 86400)
+      uptimeFormatted = `${Math.floor(uptimeSecs / 3600)} hrs`;
     else uptimeFormatted = `${Math.floor(uptimeSecs / 86400)} days`;
 
     const totalUsers = await this.prisma.user.count();
 
     const now = Date.now();
     // Clean up old timestamps (older than 60s)
-    while (globalRequestTimestamps.length > 0 && globalRequestTimestamps[0] < now - 60000) {
+    while (
+      globalRequestTimestamps.length > 0 &&
+      globalRequestTimestamps[0] < now - 60000
+    ) {
       globalRequestTimestamps.shift();
     }
     const requestsPerMin = globalRequestTimestamps.length;
@@ -230,7 +238,7 @@ export class AppService {
       requestsPerMin: requestsPerMin,
       uptimeFormatted: uptimeFormatted,
       osPlatform: os.platform(),
-      environment: process.env.NODE_ENV || 'development'
+      environment: process.env.NODE_ENV || 'development',
     };
   }
 }

@@ -13,7 +13,6 @@ import { JwtAuthGuard } from '../../auth/guards/jwt.guard';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { UpdateProfileDto, ChangePasswordDto } from './dto/profile.dto';
 
-
 @Controller('admin/profile')
 @UseGuards(JwtAuthGuard)
 export class ProfileController {
@@ -31,8 +30,14 @@ export class ProfileController {
     @Body() dto: UpdateProfileDto,
     @UploadedFile() file?: Express.Multer.File,
   ) {
-    const removeAvatar = (dto as UpdateProfileDto & { removeAvatar?: string }).removeAvatar;
-    return this.profileService.updateProfile(userId, dto, file, removeAvatar === 'true');
+    const removeAvatar = (dto as UpdateProfileDto & { removeAvatar?: string })
+      .removeAvatar;
+    return this.profileService.updateProfile(
+      userId,
+      dto,
+      file,
+      removeAvatar === 'true',
+    );
   }
 
   @Put('change-password')

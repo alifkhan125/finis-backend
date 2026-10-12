@@ -98,13 +98,18 @@ export class SubTaskController {
     @Query('page') page = '1',
     @Query('limit') limit = '10',
   ) {
-    return this.taskService.getSubTasksByGroup(userId, userRole, decodeURIComponent(title), {
-      taskId,
-      projectId,
-      status,
-      page: +page,
-      limit: +limit,
-    });
+    return this.taskService.getSubTasksByGroup(
+      userId,
+      userRole,
+      decodeURIComponent(title),
+      {
+        taskId,
+        projectId,
+        status,
+        page: +page,
+        limit: +limit,
+      },
+    );
   }
 
   /** GET /admin/subtasks/:id — single subtask details */
@@ -138,9 +143,18 @@ export class SubTaskController {
     @UploadedFile() file?: Express.Multer.File,
   ) {
     const uploadedFile = file
-      ? { ...file, filename: await this.storageService.uploadFile(file, 'task-expenses') }
+      ? {
+          ...file,
+          filename: await this.storageService.uploadFile(file, 'task-expenses'),
+        }
       : undefined;
-    return this.taskService.reviewSubTaskApproval(id, dto, userId, userRole, uploadedFile);
+    return this.taskService.reviewSubTaskApproval(
+      id,
+      dto,
+      userId,
+      userRole,
+      uploadedFile,
+    );
   }
 
   /** PUT /admin/subtasks/:id/report-review — latest report approval/rejection */
@@ -154,8 +168,17 @@ export class SubTaskController {
     @UploadedFile() file?: Express.Multer.File,
   ) {
     const uploadedFile = file
-      ? { ...file, filename: await this.storageService.uploadFile(file, 'task-expenses') }
+      ? {
+          ...file,
+          filename: await this.storageService.uploadFile(file, 'task-expenses'),
+        }
       : undefined;
-    return this.taskService.reviewSubTaskReport(id, dto, userId, userRole, uploadedFile);
+    return this.taskService.reviewSubTaskReport(
+      id,
+      dto,
+      userId,
+      userRole,
+      uploadedFile,
+    );
   }
 }

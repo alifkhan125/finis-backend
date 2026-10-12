@@ -1,4 +1,13 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { PublicContentService } from './public-content.service';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -30,7 +39,14 @@ export class PublicContentController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.super_admin)
   createSupportRequest(
-    @Body() body: { name: string; email?: string; role?: string; subject: string; message: string },
+    @Body()
+    body: {
+      name: string;
+      email?: string;
+      role?: string;
+      subject: string;
+      message: string;
+    },
   ) {
     return this.service.createSupportRequest(body);
   }
@@ -39,7 +55,15 @@ export class PublicContentController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.super_admin)
   upsertPage(
-    @Body() body: { slug: string; title: string; subtitle?: string; body?: unknown; sections?: unknown; isPublished?: boolean },
+    @Body()
+    body: {
+      slug: string;
+      title: string;
+      subtitle?: string;
+      body?: unknown;
+      sections?: unknown;
+      isPublished?: boolean;
+    },
   ) {
     return this.service.upsertPage(body);
   }
@@ -49,7 +73,14 @@ export class PublicContentController {
   @Roles(UserRole.super_admin)
   updatePage(
     @Param('slug') slug: string,
-    @Body() body: { title: string; subtitle?: string; body?: unknown; sections?: unknown; isPublished?: boolean },
+    @Body()
+    body: {
+      title: string;
+      subtitle?: string;
+      body?: unknown;
+      sections?: unknown;
+      isPublished?: boolean;
+    },
   ) {
     return this.service.upsertPage({ slug, ...body });
   }

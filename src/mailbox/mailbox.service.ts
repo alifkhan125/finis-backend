@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Resend } from 'resend';
 import { SendMailDto } from './dto/send-mail.dto';
@@ -18,6 +22,11 @@ type MailboxUser = {
   avatarUrl?: string | null;
 };
 
+type MailboxActor = {
+  id: string;
+  role?: string | null;
+};
+
 @Injectable()
 export class MailboxService {
   private resend: Resend | null = null;
@@ -26,7 +35,8 @@ export class MailboxService {
 
   constructor(private readonly prisma: PrismaService) {
     this.fromEmail = process.env.MAILBOX_FROM_EMAIL || 'manager@yourdomain.com';
-    this.replyDomain = process.env.MAILBOX_REPLY_DOMAIN || 'reply.yourdomain.com';
+    this.replyDomain =
+      process.env.MAILBOX_REPLY_DOMAIN || 'reply.yourdomain.com';
   }
 
   private getResendClient() {
@@ -66,7 +76,14 @@ export class MailboxService {
   }
 
   private extractBodyText(bodyHtml?: string | null, bodyText?: string | null) {
-    return bodyText ?? bodyHtml?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() ?? '';
+    return (
+      bodyText ??
+      bodyHtml
+        ?.replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim() ??
+      ''
+    );
   }
 
   private formatUser(user?: MailboxUser | null) {
@@ -90,7 +107,22 @@ export class MailboxService {
     return undefined;
   }
 
-  async sendMail(managerId: string, dto: SendMailDto, attachments?: MailboxAttachment[]) {
+  private canAccessAllMailbox(user: MailboxActor) {
+    return user.role === 'admin' || user.role === 'super_admin';
+  }
+
+  private conversationAccessWhere(user: MailboxActor, conversationId?: string) {
+    return {
+      ...(conversationId ? { id: conversationId } : {}),
+      ...(this.canAccessAllMailbox(user) ? {} : { managerId: user.id }),
+    };
+  }
+
+  async sendMail(
+    managerId: string,
+    dto: SendMailDto,
+    attachments?: MailboxAttachment[],
+  ) {
     const normalizedClientEmail = dto.clientEmail.trim().toLowerCase();
     const bodyHtml = `<div>${dto.body.replace(/\n/g, '<br/>')}</div>`;
     const clientName = dto.clientName?.trim() || dto.clientEmail;
@@ -104,7 +136,13 @@ export class MailboxService {
       },
       include: {
         manager: {
-          select: { id: true, fullName: true, email: true, role: true, avatarUrl: true },
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            role: true,
+            avatarUrl: true,
+          },
         },
       },
     });
@@ -122,12 +160,21 @@ export class MailboxService {
         },
         include: {
           manager: {
-            select: { id: true, fullName: true, email: true, role: true, avatarUrl: true },
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              role: true,
+              avatarUrl: true,
+            },
           },
         },
       }));
 
-    if (conversation.status !== 'active' || conversation.clientName !== clientName) {
+    if (
+      conversation.status !== 'active' ||
+      conversation.clientName !== clientName
+    ) {
       await this.prisma.conversation.update({
         where: { id: conversation.id },
         data: {
@@ -184,20 +231,23 @@ export class MailboxService {
   }
 
   async listMailbox(
-    managerId: string,
+    user: MailboxActor,
     status?: string,
     starred?: string,
     page?: string,
     limit?: string,
   ) {
     const pageNumber = Math.max(1, Number.parseInt(page ?? '1', 10) || 1);
-    const limitNumber = Math.min(100, Math.max(1, Number.parseInt(limit ?? '10', 10) || 10));
+    const limitNumber = Math.min(
+      100,
+      Math.max(1, Number.parseInt(limit ?? '10', 10) || 10),
+    );
     const skip = (pageNumber - 1) * limitNumber;
 
     const normalizedStatus = this.normalizeMailboxStatus(status);
 
     const where = {
-      managerId,
+      ...this.conversationAccessWhere(user),
       ...(normalizedStatus ? { status: normalizedStatus } : {}),
       ...(starred != null ? { isStarred: starred === 'true' } : {}),
     };
@@ -210,12 +260,24 @@ export class MailboxService {
         orderBy: [{ isStarred: 'desc' }, { createdAt: 'desc' }],
         include: {
           manager: {
-            select: { id: true, fullName: true, email: true, role: true, avatarUrl: true },
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              role: true,
+              avatarUrl: true,
+            },
           },
           messages: {
             include: {
               sender: {
-                select: { id: true, fullName: true, email: true, role: true, avatarUrl: true },
+                select: {
+                  id: true,
+                  fullName: true,
+                  email: true,
+                  role: true,
+                  avatarUrl: true,
+                },
               },
             },
             orderBy: { createdAt: 'desc' },
@@ -227,7 +289,9 @@ export class MailboxService {
 
     const data = conversations.map((conversation) => {
       const latestMessage = conversation.messages[0] ?? null;
-      const unreadCount = conversation.messages.filter((message) => !message.isRead && message.direction === 'received').length;
+      const unreadCount = conversation.messages.filter(
+        (message) => !message.isRead && message.direction === 'received',
+      ).length;
 
       return {
         id: conversation.id,
@@ -244,7 +308,10 @@ export class MailboxService {
               id: latestMessage.id,
               direction: latestMessage.direction,
               subject: latestMessage.subject,
-              preview: this.extractBodyText(latestMessage.bodyHtml, latestMessage.bodyText).slice(0, 160),
+              preview: this.extractBodyText(
+                latestMessage.bodyHtml,
+                latestMessage.bodyText,
+              ).slice(0, 160),
               createdAt: latestMessage.createdAt,
               isRead: latestMessage.isRead,
               sender: this.formatUser(latestMessage.sender),
@@ -264,17 +331,29 @@ export class MailboxService {
     };
   }
 
-  async getConversation(managerId: string, conversationId: string) {
+  async getConversation(user: MailboxActor, conversationId: string) {
     const conversation = await this.prisma.conversation.findFirst({
-      where: { id: conversationId, managerId },
+      where: this.conversationAccessWhere(user, conversationId),
       include: {
         manager: {
-          select: { id: true, fullName: true, email: true, role: true, avatarUrl: true },
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            role: true,
+            avatarUrl: true,
+          },
         },
         messages: {
           include: {
             sender: {
-              select: { id: true, fullName: true, email: true, role: true, avatarUrl: true },
+              select: {
+                id: true,
+                fullName: true,
+                email: true,
+                role: true,
+                avatarUrl: true,
+              },
             },
           },
           orderBy: { createdAt: 'asc' },
@@ -302,9 +381,13 @@ export class MailboxService {
     };
   }
 
-  async updateStatus(managerId: string, conversationId: string, status: 'active' | 'closed') {
+  async updateStatus(
+    user: MailboxActor,
+    conversationId: string,
+    status: 'active' | 'closed',
+  ) {
     const conversation = await this.prisma.conversation.findFirst({
-      where: { id: conversationId, managerId },
+      where: this.conversationAccessWhere(user, conversationId),
     });
 
     if (!conversation) {
@@ -317,9 +400,9 @@ export class MailboxService {
     });
   }
 
-  async toggleStar(managerId: string, conversationId: string) {
+  async toggleStar(user: MailboxActor, conversationId: string) {
     const conversation = await this.prisma.conversation.findFirst({
-      where: { id: conversationId, managerId },
+      where: this.conversationAccessWhere(user, conversationId),
     });
 
     if (!conversation) {
@@ -332,9 +415,13 @@ export class MailboxService {
     });
   }
 
-  async setFavorite(managerId: string, conversationId: string, isStarred: boolean) {
+  async setFavorite(
+    user: MailboxActor,
+    conversationId: string,
+    isStarred: boolean,
+  ) {
     const conversation = await this.prisma.conversation.findFirst({
-      where: { id: conversationId, managerId },
+      where: this.conversationAccessWhere(user, conversationId),
     });
 
     if (!conversation) {
@@ -347,8 +434,13 @@ export class MailboxService {
     });
   }
 
-  async handleInboundWebhook(payload: string | Buffer, headers: WebhookHeaders) {
-    const rawBody = Buffer.isBuffer(payload) ? payload.toString('utf8') : payload;
+  async handleInboundWebhook(
+    payload: string | Buffer,
+    headers: WebhookHeaders,
+  ) {
+    const rawBody = Buffer.isBuffer(payload)
+      ? payload.toString('utf8')
+      : payload;
     const webhookSecret = process.env.RESEND_WEBHOOK_SECRET;
     const resend = this.getResendClient();
 
@@ -383,11 +475,13 @@ export class MailboxService {
     const subject = data?.subject ?? '';
     const bodyText = data?.text ?? data?.bodyText ?? data?.body ?? null;
     const bodyHtml = data?.html ?? data?.bodyHtml ?? null;
-    const attachments = (data?.attachments ?? []).map((attachment: any) => ({
-      name: attachment?.name ?? attachment?.filename ?? 'attachment',
-      url: attachment?.url ?? attachment?.path ?? '',
-      size: attachment?.size != null ? String(attachment.size) : undefined,
-    })).filter((attachment: MailboxAttachment) => attachment.url);
+    const attachments = (data?.attachments ?? [])
+      .map((attachment: any) => ({
+        name: attachment?.name ?? attachment?.filename ?? 'attachment',
+        url: attachment?.url ?? attachment?.path ?? '',
+        size: attachment?.size != null ? String(attachment.size) : undefined,
+      }))
+      .filter((attachment: MailboxAttachment) => attachment.url);
 
     if (!to) {
       throw new BadRequestException('Recipient address not found');

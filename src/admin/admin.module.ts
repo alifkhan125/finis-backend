@@ -59,6 +59,12 @@ import { ReportsService } from '../super-admin/reports/reports.service';
     ReportsService,
     ReimbursementExpensesService,
   ],
-  exports: [CompanyService, ProjectService, InventoryService, PayrollService, GeofencingGateway],
+  exports: [
+    CompanyService,
+    ProjectService,
+    InventoryService,
+    PayrollService,
+    GeofencingGateway,
+  ],
 })
 export class AdminModule {}

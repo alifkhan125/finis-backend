@@ -12,7 +12,7 @@ export class TeamManagementService {
   constructor(
     private prisma: PrismaService,
     private storageService: StorageService,
-  ) { }
+  ) {}
 
   // ── Admin Stats ──────────────────────────────────────────────────────
   async getAdminStats(userId: string, userRole: string) {
@@ -42,11 +42,11 @@ export class TeamManagementService {
         ...(status && status !== 'all' ? { status: status as any } : {}),
         ...(search
           ? {
-            OR: [
-              { fullName: { contains: search, mode: 'insensitive' } },
-              { email: { contains: search, mode: 'insensitive' } },
-            ],
-          }
+              OR: [
+                { fullName: { contains: search, mode: 'insensitive' } },
+                { email: { contains: search, mode: 'insensitive' } },
+              ],
+            }
           : {}),
       },
       select: {
@@ -134,7 +134,7 @@ export class TeamManagementService {
         orderBy: { createdAt: 'desc' },
       });
 
-      const companies = ownedCompanies.map(c => ({
+      const companies = ownedCompanies.map((c) => ({
         id: c.id,
         role: 'owner',
         joinedAt: c.createdAt,
@@ -203,7 +203,7 @@ export class TeamManagementService {
       where: { id: userId },
       data: {
         fullName: data.fullName,
-        role: data.role as any,
+        role: data.role,
         phone: data.phone,
         hourlyRate: data.hourlyRate ? parseFloat(data.hourlyRate) : undefined,
       },
@@ -226,13 +226,19 @@ export class TeamManagementService {
     });
 
     const activeManagers = await this.prisma.user.count({
-      where: { role: UserRole.manager, status: UserStatus.active, ...adminFilter },
+      where: {
+        role: UserRole.manager,
+        status: UserStatus.active,
+        ...adminFilter,
+      },
     });
 
     const managedProjects = await this.prisma.projectMember.findMany({
-      where: { 
+      where: {
         role: 'manager',
-        ...(userRole === UserRole.admin ? { project: { company: { ownerId: userId } } } : {})
+        ...(userRole === UserRole.admin
+          ? { project: { company: { ownerId: userId } } }
+          : {}),
       },
       select: { projectId: true },
       distinct: ['projectId'],
@@ -322,19 +328,23 @@ export class TeamManagementService {
     });
     const prevAvgAttendance =
       totalExpectedAttendances > 0
-        ? Math.round((prevMonthAttendances / totalExpectedAttendances) * 1000) / 10
+        ? Math.round((prevMonthAttendances / totalExpectedAttendances) * 1000) /
+          10
         : 0;
-    const attendanceTrend = Math.round((avgAttendance - prevAvgAttendance) * 10) / 10;
+    const attendanceTrend =
+      Math.round((avgAttendance - prevAvgAttendance) * 10) / 10;
 
     return {
       totalWorkforce,
-      workforceTrend: workforceTrend >= 0 ? `+${workforceTrend}` : `${workforceTrend}`,
+      workforceTrend:
+        workforceTrend >= 0 ? `+${workforceTrend}` : `${workforceTrend}`,
       activeToday,
       activeTodayPercent: `${activeTodayPercent}%`,
       onLeave,
       leaveTrend: leaveTrend >= 0 ? `+${leaveTrend}` : `${leaveTrend}`,
       avgAttendance: `${avgAttendance}%`,
-      attendanceTrend: attendanceTrend >= 0 ? `+${attendanceTrend}%` : `${attendanceTrend}%`,
+      attendanceTrend:
+        attendanceTrend >= 0 ? `+${attendanceTrend}%` : `${attendanceTrend}%`,
     };
   }
 
@@ -352,11 +362,11 @@ export class TeamManagementService {
         ...(role ? { role: role as UserRole } : {}),
         ...(search
           ? {
-            OR: [
-              { email: { contains: search, mode: 'insensitive' } },
-              { phone: { contains: search, mode: 'insensitive' } },
-            ],
-          }
+              OR: [
+                { email: { contains: search, mode: 'insensitive' } },
+                { phone: { contains: search, mode: 'insensitive' } },
+              ],
+            }
           : {}),
       },
       include: {
@@ -385,20 +395,24 @@ export class TeamManagementService {
     }));
   }
 
-
   // ── Manager List ─────────────────────────────────────────────────────────
-  async getManagerList(search?: string, status?: string, userId?: string, userRole?: string) {
+  async getManagerList(
+    search?: string,
+    status?: string,
+    userId?: string,
+    userRole?: string,
+  ) {
     return this.prisma.user.findMany({
       where: {
         role: UserRole.manager,
         ...(status && status !== 'all' ? { status: status as any } : {}),
         ...(search
           ? {
-            OR: [
-              { fullName: { contains: search, mode: 'insensitive' } },
-              { email: { contains: search, mode: 'insensitive' } },
-            ],
-          }
+              OR: [
+                { fullName: { contains: search, mode: 'insensitive' } },
+                { email: { contains: search, mode: 'insensitive' } },
+              ],
+            }
           : {}),
         ...(userRole === UserRole.admin && userId
           ? {
@@ -438,7 +452,11 @@ export class TeamManagementService {
   }
 
   // ── Worker Documents CRUD ──────────────────────────────────────────
-  async getWorkerDocuments(workerId: string, search?: string, category?: string) {
+  async getWorkerDocuments(
+    workerId: string,
+    search?: string,
+    category?: string,
+  ) {
     const user = await this.prisma.user.findUnique({
       where: { id: workerId },
       select: {
@@ -486,13 +504,17 @@ export class TeamManagementService {
 
     if (search) {
       const q = search.toLowerCase();
-      allDocs = allDocs.filter(d => 
-        d.name.toLowerCase().includes(q) || d.category.toLowerCase().includes(q)
+      allDocs = allDocs.filter(
+        (d) =>
+          d.name.toLowerCase().includes(q) ||
+          d.category.toLowerCase().includes(q),
       );
     }
 
     if (category && category !== 'all') {
-      allDocs = allDocs.filter(d => d.category.toLowerCase() === category.toLowerCase());
+      allDocs = allDocs.filter(
+        (d) => d.category.toLowerCase() === category.toLowerCase(),
+      );
     }
 
     return allDocs;
@@ -519,7 +541,10 @@ export class TeamManagementService {
       throw new BadRequestException('File is required');
     }
 
-    const fileUrl = await this.storageService.uploadFile(file, 'worker-documents');
+    const fileUrl = await this.storageService.uploadFile(
+      file,
+      'worker-documents',
+    );
     const fileSizeMb = Math.round((file.size / (1024 * 1024)) * 100) / 100;
     const documentName = customName?.trim() || file.originalname;
     const documentCategory = category?.trim() || 'General Document';
@@ -538,15 +563,17 @@ export class TeamManagementService {
 
     // If category is Certification, also create/sync a UserCertification record
     if (documentCategory.toLowerCase().includes('cert')) {
-      await this.prisma.userCertification.create({
-        data: {
-          userId: workerId,
-          name: documentName.replace(/\.[^/.]+$/, ''),
-          documentUrl: fileUrl,
-          issuedAt: new Date(),
-          status: 'active',
-        },
-      }).catch(() => {});
+      await this.prisma.userCertification
+        .create({
+          data: {
+            userId: workerId,
+            name: documentName.replace(/\.[^/.]+$/, ''),
+            documentUrl: fileUrl,
+            issuedAt: new Date(),
+            status: 'active',
+          },
+        })
+        .catch(() => {});
     }
 
     return {
@@ -592,4 +619,3 @@ export class TeamManagementService {
     throw new NotFoundException('Document not found');
   }
 }
-

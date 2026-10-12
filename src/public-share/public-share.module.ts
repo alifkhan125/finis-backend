@@ -6,6 +6,6 @@ import { PrismaModule } from '../prisma/prisma.module';
 @Module({
   imports: [PrismaModule],
   controllers: [PublicShareController],
-  providers: [PublicShareService]
+  providers: [PublicShareService],
 })
 export class PublicShareModule {}

@@ -30,10 +30,21 @@ import {
 } from './dto/company.dto';
 import { StorageService } from '../../storage/storage.service';
 
-const imageLogoFileFilter = (_: unknown, file: any, cb: (error: Error | null, acceptFile: boolean) => void) => {
+const imageLogoFileFilter = (
+  _: unknown,
+  file: any,
+  cb: (error: Error | null, acceptFile: boolean) => void,
+) => {
   const extension = extname(file.originalname).toLowerCase();
-  const isImageMimeType = typeof file.mimetype === 'string' && file.mimetype.startsWith('image/');
-  const isAllowedExtension = ['.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(extension);
+  const isImageMimeType =
+    typeof file.mimetype === 'string' && file.mimetype.startsWith('image/');
+  const isAllowedExtension = [
+    '.png',
+    '.jpg',
+    '.jpeg',
+    '.webp',
+    '.gif',
+  ].includes(extension);
 
   if (!isImageMimeType || !isAllowedExtension) {
     cb(new BadRequestException('Company logo must be an image file'), false);
@@ -50,7 +61,7 @@ export class CompanyController {
   constructor(
     private companyService: CompanyService,
     private storageService: StorageService,
-  ) { }
+  ) {}
 
   // ─── COMPANIES ────────────────────────────────────────────────────────────
 
@@ -67,7 +78,12 @@ export class CompanyController {
   /** POST /admin/companies — create company */
   @Post()
   @Roles(UserRole.admin)
-  @UseInterceptors(FileInterceptor('logo', { storage: memoryStorage(), fileFilter: imageLogoFileFilter }))
+  @UseInterceptors(
+    FileInterceptor('logo', {
+      storage: memoryStorage(),
+      fileFilter: imageLogoFileFilter,
+    }),
+  )
   async createCompany(
     @Body() dto: CreateCompanyDto,
     @CurrentUser('id') adminId: string,
@@ -75,8 +91,10 @@ export class CompanyController {
   ) {
     // Check limit first so we don't upload file if they are not allowed
     await this.companyService.checkCompanyLimit(adminId);
-    
-    const logoUrl = file ? await this.storageService.uploadFile(file, 'company-logos') : undefined;
+
+    const logoUrl = file
+      ? await this.storageService.uploadFile(file, 'company-logos')
+      : undefined;
     return this.companyService.createCompany(dto, adminId, logoUrl);
   }
 
@@ -92,7 +110,12 @@ export class CompanyController {
 
   /** PUT /admin/companies/:id — update company */
   @Put(':id')
-  @UseInterceptors(FileInterceptor('logo', { storage: memoryStorage(), fileFilter: imageLogoFileFilter }))
+  @UseInterceptors(
+    FileInterceptor('logo', {
+      storage: memoryStorage(),
+      fileFilter: imageLogoFileFilter,
+    }),
+  )
   async updateCompany(
     @Param('id') companyId: string,
     @Body() dto: UpdateCompanyDto,
@@ -100,8 +123,16 @@ export class CompanyController {
     @CurrentUser('role') userRole: string,
     @UploadedFile() file?: Express.Multer.File,
   ) {
-    const logoUrl = file ? await this.storageService.uploadFile(file, 'company-logos') : undefined;
-    return this.companyService.updateCompany(companyId, dto, adminId, logoUrl, userRole);
+    const logoUrl = file
+      ? await this.storageService.uploadFile(file, 'company-logos')
+      : undefined;
+    return this.companyService.updateCompany(
+      companyId,
+      dto,
+      adminId,
+      logoUrl,
+      userRole,
+    );
   }
 
   /** DELETE /admin/companies/:id — deactivate company */
@@ -133,7 +164,11 @@ export class CompanyController {
     @CurrentUser('id') adminId: string,
     @CurrentUser('role') userRole: string,
   ) {
-    return this.companyService.getAssignedProjects(companyId, adminId, userRole);
+    return this.companyService.getAssignedProjects(
+      companyId,
+      adminId,
+      userRole,
+    );
   }
 
   // ─── PERFORMANCE ──────────────────────────────────────────────────────────
@@ -145,7 +180,11 @@ export class CompanyController {
     @CurrentUser('id') adminId: string,
     @CurrentUser('role') userRole: string,
   ) {
-    return this.companyService.getCompanyPerformance(companyId, adminId, userRole);
+    return this.companyService.getCompanyPerformance(
+      companyId,
+      adminId,
+      userRole,
+    );
   }
 
   // ─── CONTACTS ─────────────────────────────────────────────────────────────
@@ -160,7 +199,6 @@ export class CompanyController {
   ) {
     return this.companyService.getContacts(companyId, adminId, query, userRole);
   }
-
 
   // ─── DOCUMENTS ────────────────────────────────────────────────────────────
 
@@ -183,8 +221,16 @@ export class CompanyController {
     @CurrentUser('role') userRole: string,
     @UploadedFile() file: Express.Multer.File,
   ) {
-    const fileUrl = file ? await this.storageService.uploadFile(file, 'company-documents') : undefined;
-    return this.companyService.uploadDocument(companyId, adminId, file, userRole, fileUrl);
+    const fileUrl = file
+      ? await this.storageService.uploadFile(file, 'company-documents')
+      : undefined;
+    return this.companyService.uploadDocument(
+      companyId,
+      adminId,
+      file,
+      userRole,
+      fileUrl,
+    );
   }
 
   /** DELETE /admin/companies/:id/documents/:docId */
@@ -195,7 +241,12 @@ export class CompanyController {
     @CurrentUser('id') adminId: string,
     @CurrentUser('role') userRole: string,
   ) {
-    return this.companyService.deleteDocument(companyId, docId, adminId, userRole);
+    return this.companyService.deleteDocument(
+      companyId,
+      docId,
+      adminId,
+      userRole,
+    );
   }
   /** POST /admin/companies/:id/share */
   @Post(':id/share')

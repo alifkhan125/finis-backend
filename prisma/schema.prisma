@@ -482,6 +482,7 @@ model Task {
   description           String?
   priority              TaskPriority           @default(medium)
   status                TaskStatus             @default(pending)
+  price                 Float                  @default(0)
   approvalDecision      ReviewDecision         @default(pending) @map("approval_decision")
   approvalReviewedBy    String?                @map("approval_reviewed_by") @db.Uuid
   approvalReviewedAt    DateTime?              @map("approval_reviewed_at")
@@ -525,6 +526,7 @@ model SubTask {
   dueDate               DateTime?       @map("due_date") @db.Date
   estimatedHours        Int?            @map("estimated_hours")
   status                TaskStatus      @default(pending)
+  price                 Float           @default(0)
   approvalDecision      ReviewDecision  @default(pending) @map("approval_decision")
   approvalReviewedBy    String?         @map("approval_reviewed_by") @db.Uuid
   approvalReviewedAt    DateTime?       @map("approval_reviewed_at")

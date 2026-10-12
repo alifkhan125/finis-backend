@@ -19,9 +19,7 @@ import { ApproveRejectReportDto } from './dto/project.dto';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.super_admin)
 export class SuperAdminProjectController {
-  constructor(
-    private superAdminProjectService: SuperAdminProjectService,
-  ) {}
+  constructor(private superAdminProjectService: SuperAdminProjectService) {}
 
   // ─── PROJECT STATS (Image 1 — Total/Active/Completed/Delayed with % change) ──
 
@@ -36,7 +34,11 @@ export class SuperAdminProjectController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ) {
-    return this.superAdminProjectService.getProjectStats(period, startDate, endDate);
+    return this.superAdminProjectService.getProjectStats(
+      period,
+      startDate,
+      endDate,
+    );
   }
 
   // ─── PROJECT LIST WITH FILTER ──────────────────────────────────────────────
@@ -53,7 +55,13 @@ export class SuperAdminProjectController {
     @Query('endDate') endDate?: string,
     @Query('search') search?: string,
   ) {
-    return this.superAdminProjectService.getAllProjects(status, period, startDate, endDate, search);
+    return this.superAdminProjectService.getAllProjects(
+      status,
+      period,
+      startDate,
+      endDate,
+      search,
+    );
   }
 
   /**
@@ -95,7 +103,12 @@ export class SuperAdminProjectController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ) {
-    return this.superAdminProjectService.getFinancialAnalysis(id, period, startDate, endDate);
+    return this.superAdminProjectService.getFinancialAnalysis(
+      id,
+      period,
+      startDate,
+      endDate,
+    );
   }
 
   // ─── APPROVALS ─────────────────────────────────────────────────────────────
@@ -119,7 +132,12 @@ export class SuperAdminProjectController {
     @Body() dto: ApproveRejectReportDto,
     @CurrentUser('id') userId: string,
   ) {
-    return this.superAdminProjectService.reviewReport(reportId, 'approved', userId, dto.description);
+    return this.superAdminProjectService.reviewReport(
+      reportId,
+      'approved',
+      userId,
+      dto.description,
+    );
   }
 
   /**
@@ -132,7 +150,12 @@ export class SuperAdminProjectController {
     @Body() dto: ApproveRejectReportDto,
     @CurrentUser('id') userId: string,
   ) {
-    return this.superAdminProjectService.reviewReport(reportId, 'rejected', userId, dto.description);
+    return this.superAdminProjectService.reviewReport(
+      reportId,
+      'rejected',
+      userId,
+      dto.description,
+    );
   }
 
   // ─── DOCUMENTS (read-only) ────────────────────────────────────────────────
@@ -147,7 +170,11 @@ export class SuperAdminProjectController {
     @Query('search') search?: string,
     @Query('category') category?: string,
   ) {
-    return this.superAdminProjectService.getProjectDocuments(id, search, category);
+    return this.superAdminProjectService.getProjectDocuments(
+      id,
+      search,
+      category,
+    );
   }
 
   // ─── SUSPEND PROJECT ──────────────────────────────────────────────────────

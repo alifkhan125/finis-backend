@@ -5,7 +5,7 @@ import { R2Service } from '../r2/r2.service';
 import { S3Service } from '../s3/s3.service';
 import { promises as fs } from 'fs';
 import { join, extname } from 'path';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import sharp from 'sharp';
 
 type StorageDriver = 'cloudinary' | 'r2' | 's3' | 'local';
@@ -21,14 +21,19 @@ export class StorageService {
     private readonly s3: S3Service,
   ) {}
 
-  async uploadFile(file: Express.Multer.File, folder: string = 'uploads'): Promise<string> {
+  async uploadFile(
+    file: Express.Multer.File,
+    folder: string = 'uploads',
+  ): Promise<string> {
     const driver = this.getDriver();
 
     if (driver === 'cloudinary') {
       try {
         return await this.cloudinary.uploadFile(file, folder);
       } catch (error) {
-        this.logger.error(`Cloudinary upload failed: ${this.errorMessage(error)}`);
+        this.logger.error(
+          `Cloudinary upload failed: ${this.errorMessage(error)}`,
+        );
         throw error;
       }
     }
@@ -45,7 +50,9 @@ export class StorageService {
     try {
       return await this.r2.uploadFile(file, folder);
     } catch (error) {
-      this.logger.warn(`R2 upload failed, falling back to S3: ${this.errorMessage(error)}`);
+      this.logger.warn(
+        `R2 upload failed, falling back to S3: ${this.errorMessage(error)}`,
+      );
       return this.s3.uploadFile(file, folder);
     }
   }
@@ -74,31 +81,48 @@ export class StorageService {
     await this.s3.deleteFile(fileUrl);
   }
 
-  private async uploadLocally(file: Express.Multer.File, folder: string): Promise<string> {
+  private async uploadLocally(
+    file: Express.Multer.File,
+    folder: string,
+  ): Promise<string> {
     const uploadDir = join(process.cwd(), 'uploads', folder);
     await fs.mkdir(uploadDir, { recursive: true });
 
     const isImage = file.mimetype?.startsWith('image/');
     const ext = isImage ? '.webp' : extname(file.originalname);
-    const filename = `${uuidv4()}${ext}`;
+    const filename = `${randomUUID()}${ext}`;
     const filePath = join(uploadDir, filename);
 
     const buffer = isImage
       ? await sharp(file.buffer)
-          .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
+          .resize({
+            width: 1600,
+            height: 1600,
+            fit: 'inside',
+            withoutEnlargement: true,
+          })
           .webp({ quality: 80 })
           .toBuffer()
       : file.buffer;
 
     await fs.writeFile(filePath, buffer);
 
-    const appUrl = this.config.get<string>('APP_URL') || `http://localhost:${this.config.get<string>('PORT') || 6000}`;
+    const appUrl =
+      this.config.get<string>('APP_URL') ||
+      `http://localhost:${this.config.get<string>('PORT') || 6000}`;
     return `${appUrl.replace(/\/+$/, '')}/${folder}/${filename}`;
   }
 
   private getDriver(): StorageDriver {
-    const configuredDriver = this.config.get<string>('STORAGE_DRIVER')?.toLowerCase();
-    if (configuredDriver === 'cloudinary' || configuredDriver === 'r2' || configuredDriver === 's3' || configuredDriver === 'local') {
+    const configuredDriver = this.config
+      .get<string>('STORAGE_DRIVER')
+      ?.toLowerCase();
+    if (
+      configuredDriver === 'cloudinary' ||
+      configuredDriver === 'r2' ||
+      configuredDriver === 's3' ||
+      configuredDriver === 'local'
+    ) {
       return configuredDriver as StorageDriver;
     }
 
@@ -113,4 +137,3 @@ export class StorageService {
     return error instanceof Error ? error.message : String(error);
   }
 }
-

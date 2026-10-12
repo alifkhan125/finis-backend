@@ -38,9 +38,9 @@ export enum CompanyStatus {
 
 // ─── Company Size Enum (image: Company Size dropdown) ────────────────────────
 export enum CompanySize {
-  small = 'small',       // 1-50
-  medium = 'medium',     // 51-200
-  large = 'large',       // 201-1000
+  small = 'small', // 1-50
+  medium = 'medium', // 51-200
+  large = 'large', // 201-1000
   enterprise = 'enterprise', // 1000+
 }
 

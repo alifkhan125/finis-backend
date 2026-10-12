@@ -68,10 +68,15 @@ export class ReportsController {
     @CurrentUser('role') userRole: string,
     @Res() res: Response,
   ) {
-    return this.reportsService.exportReportPdf(dto, userId, userRole).then(({ buffer, filename }) => {
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-      return res.send(buffer);
-    });
+    return this.reportsService
+      .exportReportPdf(dto, userId, userRole)
+      .then(({ buffer, filename }) => {
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader(
+          'Content-Disposition',
+          `attachment; filename="${filename}"`,
+        );
+        return res.send(buffer);
+      });
   }
 }

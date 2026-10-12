@@ -14,7 +14,10 @@ import { Request, Response } from 'express';
 export class GlobalExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(GlobalExceptionFilter.name);
 
-  private formatValidationMessage(message: unknown): { message: string; errors: any } {
+  private formatValidationMessage(message: unknown): {
+    message: string;
+    errors: any;
+  } {
     if (!Array.isArray(message) || message.length === 0) {
       return { message: 'Validation failed', errors: null };
     }
@@ -27,7 +30,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           const field = item.property ?? item.field ?? 'field';
 
           if (item.constraints && typeof item.constraints === 'object') {
-            const constraintMessages = Object.values(item.constraints).map((constraint: any) => String(constraint));
+            const constraintMessages = Object.values(item.constraints).map(
+              (constraint: any) => String(constraint),
+            );
             return `${field}: ${constraintMessages.join(', ')}`;
           }
 
@@ -74,14 +79,17 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       }
     } else if (exception instanceof Error) {
       message = exception.message;
-      this.logger.error(`Unhandled Error: ${exception.message}`, exception.stack);
+      this.logger.error(
+        `Unhandled Error: ${exception.message}`,
+        exception.stack,
+      );
     }
 
     const errorResponse = {
       success: false,
       statusCode: status,
       message,
-      ...(errors && { errors }),       // validation errors
+      ...(errors && { errors }), // validation errors
       path: request.url,
       timestamp: new Date().toISOString(),
     };
@@ -92,7 +100,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.error(baseMessage, details);
     } else {
-      this.logger.warn(details ? `${baseMessage} | details=${details}` : baseMessage);
+      this.logger.warn(
+        details ? `${baseMessage} | details=${details}` : baseMessage,
+      );
     }
 
     response.status(status).json(errorResponse);

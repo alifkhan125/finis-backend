@@ -21,7 +21,9 @@ import { onlineUsers } from './message-presence.store';
   namespace: '/chat',
   cors: { origin: '*' },
 })
-export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class MessageGateway
+  implements OnGatewayConnection, OnGatewayDisconnect
+{
   @WebSocketServer()
   server!: Server;
 
@@ -48,22 +50,25 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
       });
 
       client.data.userId = payload.sub || payload.id;
-      client.data.role   = payload.role;
+      client.data.role = payload.role;
 
       onlineUsers.set(client.data.userId, client.id);
-      await this.prisma.user.update({
-        where: { id: client.data.userId },
-        data: { lastActiveAt: new Date() },
-      }).catch(() => undefined);
+      await this.prisma.user
+        .update({
+          where: { id: client.data.userId },
+          data: { lastActiveAt: new Date() },
+        })
+        .catch(() => undefined);
 
       // Thread preload should never kill the socket connection.
       // If a legacy DB is missing timestamp columns, we still keep the socket alive.
       try {
         if (client.data.role === 'super_admin') {
-          const supportThreads = await this.messageService.getAdminSupportThreads(
-            client.data.userId,
-            {},
-          );
+          const supportThreads =
+            await this.messageService.getAdminSupportThreads(
+              client.data.userId,
+              {},
+            );
           for (const thread of supportThreads.data) {
             client.join(`thread:${thread.id}`);
           }
@@ -102,10 +107,12 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
   handleDisconnect(client: Socket) {
     if (client.data.userId) {
       onlineUsers.delete(client.data.userId);
-      this.prisma.user.update({
-        where: { id: client.data.userId },
-        data: { lastActiveAt: new Date() },
-      }).catch(() => undefined);
+      this.prisma.user
+        .update({
+          where: { id: client.data.userId },
+          data: { lastActiveAt: new Date() },
+        })
+        .catch(() => undefined);
       this.server.emit('user:offline', { userId: client.data.userId });
       console.log(`❌ Disconnected: ${client.data.userId}`);
     }
@@ -157,28 +164,33 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
       if (client.data.role === 'super_admin') {
         // super_admin এর জন্য আলাদা service method
         message = await this.messageService.sendAdminSupportMessage(userId, {
-          threadId:  dto.threadId,
-          content:   dto.content,
-          mediaUrl:  dto.mediaUrl,
+          threadId: dto.threadId,
+          content: dto.content,
+          mediaUrl: dto.mediaUrl,
           mediaType: dto.mediaType,
           locationUrl: dto.locationUrl,
         });
       } else {
         // Regular user
         const result = await this.messageService.sendMessage(userId, {
-          threadId:  dto.threadId,
-          content:   dto.content,
-          mediaUrl:  dto.mediaUrl,
+          threadId: dto.threadId,
+          content: dto.content,
+          mediaUrl: dto.mediaUrl,
           mediaType: dto.mediaType,
           locationUrl: dto.locationUrl,
         });
         message = result.message;
-        participantIds = Array.isArray(result.participantIds) ? result.participantIds : [];
+        participantIds = Array.isArray(result.participantIds)
+          ? result.participantIds
+          : [];
         dto.threadId = result.threadId ?? dto.threadId;
       }
 
       if (participantIds.length === 0) {
-        const thread = await this.messageService.getThreadById(dto.threadId, userId);
+        const thread = await this.messageService.getThreadById(
+          dto.threadId,
+          userId,
+        );
         participantIds = Array.isArray(thread.participants)
           ? thread.participants.map((participant) => participant.userId)
           : [];
@@ -190,7 +202,7 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
 
       // Thread list update করা
       this.server.emit('thread:updated', {
-        threadId:    dto.threadId,
+        threadId: dto.threadId,
         lastMessage: message,
       });
 
@@ -225,7 +237,10 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
     client.join(`thread:${data.threadId}`);
 
     // Thread detail নিয়ে super_admin কে notify করা
-    const thread = await this.messageService.getThreadById(data.threadId, userId);
+    const thread = await this.messageService.getThreadById(
+      data.threadId,
+      userId,
+    );
     const participants = thread.participants as Array<{
       userId: string;
       user: { role: string };
@@ -240,7 +255,8 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
 
       if (superAdminSocketId) {
         // super_admin এর socket নতুন room এ join করবে
-        const superAdminSocket = this.server.sockets.sockets.get(superAdminSocketId);
+        const superAdminSocket =
+          this.server.sockets.sockets.get(superAdminSocketId);
         superAdminSocket?.join(`thread:${data.threadId}`);
 
         // super_admin কে নতুন support thread এর notification পাঠানো
@@ -271,7 +287,10 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
 
     // super_admin হলে check করতে হবে এটা support thread কিনা
     if (client.data.role === 'super_admin') {
-      const thread = await this.messageService.getThreadById(data.threadId, userId);
+      const thread = await this.messageService.getThreadById(
+        data.threadId,
+        userId,
+      );
       const participants = thread.participants as Array<{
         userId: string;
         user: { role: string };
@@ -306,7 +325,11 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
     if (!userId) return;
 
     await this.prisma.message.updateMany({
-      where: { threadId: data.threadId, senderId: { not: userId }, isRead: false },
+      where: {
+        threadId: data.threadId,
+        senderId: { not: userId },
+        isRead: false,
+      },
       data: { isRead: true },
     });
 
@@ -367,7 +390,12 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
     }
   }
 
-  emitToThread(threadId: string, event: string, data: any, participantIds?: string[]) {
+  emitToThread(
+    threadId: string,
+    event: string,
+    data: any,
+    participantIds?: string[],
+  ) {
     if (!this.server) return;
 
     if (participantIds?.length) {
