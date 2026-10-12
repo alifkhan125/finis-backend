@@ -42,6 +42,30 @@ export class TaskService {
     return { page, limit, skip: (page - 1) * limit };
   }
 
+  private canManageTaskPrice(userRole: string) {
+    return userRole === UserRole.admin || userRole === UserRole.super_admin;
+  }
+
+  private normalizePrice(price: unknown) {
+    if (price === undefined || price === null || price === '') return undefined;
+    const numericPrice = Number(price);
+    if (!Number.isFinite(numericPrice) || numericPrice < 0) {
+      throw new BadRequestException('Price must be a non-negative number');
+    }
+    return Math.round(numericPrice * 100) / 100;
+  }
+
+  private assertCanWriteTaskPrice(userRole: string, price: unknown) {
+    if (
+      price !== undefined &&
+      price !== null &&
+      price !== '' &&
+      !this.canManageTaskPrice(userRole)
+    ) {
+      throw new ForbiddenException('Only admin can assign task price');
+    }
+  }
+
   private async getProjectNotificationRecipients(
     projectId: string,
     roles: TaskNotificationRole[],
@@ -889,6 +913,7 @@ export class TaskService {
     if (!canCreateAsAdmin && !canCreateAsManager && !canCreateAsWorker) {
       throw new ForbiddenException('You are not allowed to create tasks');
     }
+    this.assertCanWriteTaskPrice(userRole, dto.price);
 
     if (userRole === UserRole.manager || userRole === UserRole.worker) {
       const member = await this.prisma.projectMember.findFirst({
@@ -961,6 +986,9 @@ export class TaskService {
 
     const approvalDecision = canCreateAsWorker ? 'pending' : 'approved';
     const initialStatus = canCreateAsWorker ? 'in_active' : 'pending';
+    const price = this.canManageTaskPrice(userRole)
+      ? (this.normalizePrice(dto.price) ?? 0)
+      : 0;
 
     const task = await this.prisma.task.create({
       data: {
@@ -979,6 +1007,7 @@ export class TaskService {
         allowSubTaskCreation: dto.allowSubTaskCreation ?? false,
         dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
         estimatedHours: dto.estimatedHours ?? null,
+        price,
       } as any,
     });
 
@@ -1044,6 +1073,7 @@ export class TaskService {
               priority: dto.priority ?? TaskPriority.medium,
               dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
               estimatedHours: dto.estimatedHours ?? null,
+              price,
               status: initialStatus,
               taskAssigneeId: workerAssignmentByUnit.get(unitId) ?? null,
               approvalDecision,
@@ -1075,6 +1105,7 @@ export class TaskService {
             priority: dto.priority ?? TaskPriority.medium,
             dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
             estimatedHours: dto.estimatedHours ?? null,
+            price,
             status: initialStatus,
             taskAssigneeId: workerAssignmentByUnit.get(dto.unitId) ?? null,
             approvalDecision,
@@ -2130,18 +2161,25 @@ export class TaskService {
       unitIds,
       expenseDescription,
       expenseAmount,
+      price,
       ...taskUpdates
     } = dto as UpdateTaskDto & {
       floorIds?: string[];
       unitIds?: string[];
       expenseDescription?: string;
       expenseAmount?: number | string;
+      price?: number | string;
     };
+    this.assertCanWriteTaskPrice(userRole, price);
+    const normalizedPrice = this.canManageTaskPrice(userRole)
+      ? this.normalizePrice(price)
+      : undefined;
 
     const updatedTask = await this.prisma.task.update({
       where: { id: taskId },
       data: {
         ...taskUpdates,
+        ...(normalizedPrice !== undefined ? { price: normalizedPrice } : {}),
         dueDate: taskUpdates.dueDate
           ? new Date(taskUpdates.dueDate)
           : undefined,
@@ -2250,6 +2288,10 @@ export class TaskService {
     }
 
     await this.verifyTaskAccess(subTask.taskId, userId, userRole);
+    this.assertCanWriteTaskPrice(userRole, dto.price);
+    const normalizedPrice = this.canManageTaskPrice(userRole)
+      ? this.normalizePrice(dto.price)
+      : undefined;
 
     return this.prisma.subTask.update({
       where: { id: subTaskId },
@@ -2258,6 +2300,7 @@ export class TaskService {
         description: dto.description,
         priority: dto.priority as any,
         dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
+        ...(normalizedPrice !== undefined ? { price: normalizedPrice } : {}),
       },
       include: {
         task: { select: { id: true, title: true } },
@@ -2601,6 +2644,7 @@ export class TaskService {
         'Subtask creation is disabled for this main task',
       );
     }
+    this.assertCanWriteTaskPrice(userRole, dto.price);
 
     const unitIds = Array.from(
       new Set([...(dto.unitIds ?? []), ...(dto.unitId ? [dto.unitId] : [])]),
@@ -2611,6 +2655,9 @@ export class TaskService {
 
     const approvalDecision =
       userRole === UserRole.worker ? 'pending' : 'approved';
+    const price = this.canManageTaskPrice(userRole)
+      ? (this.normalizePrice(dto.price) ?? 0)
+      : 0;
     const taskUnits = await this.prisma.taskUnit.findMany({
       where: { taskId, unitId: { in: unitIds } },
       include: {
@@ -2653,6 +2700,7 @@ export class TaskService {
           priority: dto.priority ?? 'medium',
           dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
           estimatedHours: dto.estimatedHours ?? null,
+          price,
           status: 'pending',
           approvalDecision,
           approvalReviewedBy: approvalDecision === 'approved' ? userId : null,
@@ -2778,12 +2826,20 @@ export class TaskService {
 
     await this.notifyProjectRecipients(
       task.projectId,
-      [UserRole.admin, UserRole.manager, UserRole.worker],
+      approvalDecision === 'pending'
+        ? [UserRole.admin, UserRole.manager]
+        : [UserRole.admin, UserRole.manager, UserRole.worker],
       {
-        title: 'Subtask Created',
-        body: `New subtask created for task: ${task.title}`,
+        title:
+          approvalDecision === 'pending'
+            ? 'Subtask Approval Requested'
+            : 'Subtask Created',
+        body:
+          approvalDecision === 'pending'
+            ? `New subtask request needs review: ${dto.title}`
+            : `New subtask created for task: ${task.title}`,
         type: 'task',
-        refId: taskId,
+        refId: createdSubTasks[0]?.id ?? taskId,
         refType: 'sub_task',
       },
       [userId],
@@ -2826,6 +2882,11 @@ export class TaskService {
     const reviewText = dto.note ?? dto.reviewDescription ?? null;
     const nextStatus =
       dto.reviewDecision === 'approved' ? 'approved' : 'rejected';
+    this.assertCanWriteTaskPrice(userRole, dto.price);
+    const normalizedPrice =
+      dto.reviewDecision === 'approved' && this.canManageTaskPrice(userRole)
+        ? this.normalizePrice(dto.price)
+        : undefined;
 
     await this.prisma.subTask.update({
       where: { id: subTaskId },
@@ -2836,6 +2897,7 @@ export class TaskService {
         approvalNotes: reviewText,
         approvalAttachmentUrl: dto.reviewAttachmentUrl ?? null,
         status: dto.reviewDecision === 'approved' ? 'pending' : 'in_active',
+        ...(normalizedPrice !== undefined ? { price: normalizedPrice } : {}),
       },
     });
 

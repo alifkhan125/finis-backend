@@ -59,3 +59,5 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 .agents
 Thumbs.db
 
+.expo-export-test/
+.expo-export-test-price-report/

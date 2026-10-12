@@ -37,6 +37,42 @@ export class WorkerService {
     return `${h}h ${m}m`;
   }
 
+  private async notifySubTaskApprovalRequest(
+    projectId: string,
+    subTaskId: string,
+    title: string,
+    requesterId: string,
+  ) {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: {
+        company: { select: { ownerId: true } },
+        teamMembers: {
+          where: { role: { in: ['admin', 'manager'] } },
+          select: { userId: true },
+        },
+      },
+    });
+
+    const recipientIds = new Set<string>();
+    if (project?.company.ownerId) recipientIds.add(project.company.ownerId);
+    project?.teamMembers.forEach((member) => recipientIds.add(member.userId));
+    recipientIds.delete(requesterId);
+
+    await Promise.all(
+      [...recipientIds].map((userId) =>
+        this.notificationsService.send({
+          userId,
+          title: 'Subtask Approval Requested',
+          body: `New subtask request needs review: ${title}`,
+          type: 'task',
+          refId: subTaskId,
+          refType: 'sub_task',
+        }),
+      ),
+    );
+  }
+
   private parseDateOnly(value: string) {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
     if (!match) return new Date(value);
@@ -1526,7 +1562,7 @@ export class WorkerService {
   ) {
     const task = await this.prisma.task.findUnique({
       where: { id: taskId },
-      include: { taskUnits: true },
+      include: { taskUnits: true, project: { select: { id: true } } },
     });
 
     if (!task) throw new NotFoundException('Task not found');
@@ -1628,6 +1664,13 @@ export class WorkerService {
       if (createdSubTask) {
         createdSubTasks.push(createdSubTask);
       }
+
+      await this.notifySubTaskApprovalRequest(
+        task.project.id,
+        subTask.id,
+        dto.title,
+        workerId,
+      );
     }
 
     const returnSubTask = createdSubTasks[0];

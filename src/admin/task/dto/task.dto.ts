@@ -72,6 +72,11 @@ export class CreateTaskDto {
   estimatedHours?: number;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  price?: number;
+
+  @IsOptional()
   @IsBoolean()
   allowSubTaskCreation?: boolean;
 }
@@ -106,6 +111,11 @@ export class UpdateTaskDto {
   @IsOptional()
   @IsNumber()
   estimatedHours?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  price?: number;
 
   @IsOptional()
   @IsNumber()
@@ -170,6 +180,11 @@ export class CreateSubTaskDto {
   @IsOptional()
   @IsNumber()
   estimatedHours?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  price?: number;
 }
 
 export class UpdateSubTaskDto {
@@ -192,6 +207,11 @@ export class UpdateSubTaskDto {
   @IsString()
   @Transform(({ value }) => (value === '' ? undefined : value))
   dueDate?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  price?: number;
 }
 
 export class ReviewTaskDto {
@@ -206,6 +226,11 @@ export class ReviewTaskDto {
   @Type(() => Number)
   @IsNumber()
   expenseAmount?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  price?: number;
 
   @IsOptional()
   @IsString()

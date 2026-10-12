@@ -28,6 +28,8 @@ import { InventoryService } from './inventory/inventory.service';
 import { PayrollController } from './payroll/payroll.controller';
 import { PayrollService } from './payroll/payroll.service';
 import { AdminReportsController } from './reports/reports.controller';
+import { ProjectInvoicesController } from './invoices/invoices.controller';
+import { ProjectInvoicesService } from './invoices/invoices.service';
 import { ReimbursementExpensesController } from './reimbursement-expenses/reimbursement-expenses.controller';
 import { ReimbursementExpensesService } from './reimbursement-expenses/reimbursement-expenses.service';
 import { ReportsService } from '../super-admin/reports/reports.service';
@@ -45,6 +47,7 @@ import { ReportsService } from '../super-admin/reports/reports.service';
     InventoryController,
     PayrollController,
     AdminReportsController,
+    ProjectInvoicesController,
     ReimbursementExpensesController,
   ],
   providers: [
@@ -57,6 +60,7 @@ import { ReportsService } from '../super-admin/reports/reports.service';
     InventoryService,
     PayrollService,
     ReportsService,
+    ProjectInvoicesService,
     ReimbursementExpensesService,
   ],
   exports: [

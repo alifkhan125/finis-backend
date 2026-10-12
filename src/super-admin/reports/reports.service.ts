@@ -36,6 +36,10 @@ export class ReportsService {
     })}`;
   }
 
+  private canSeeInternalBilling(userRole: string) {
+    return userRole === UserRole.admin || userRole === UserRole.super_admin;
+  }
+
   private toReportTitle(type: ReportType) {
     switch (type) {
       case ReportType.payroll:
@@ -385,13 +389,13 @@ export class ReportsService {
           project.name,
           project.company?.name ?? 'N/A',
           `${project.progress ?? 0}%`,
-          this.formatMoney(project.budget),
-          this.formatMoney(project.spent),
+          String(project.billableSubTaskCount ?? 0),
+          this.formatMoney(project.invoiceTotal),
           this.formatMoney(project.remaining),
         ]);
       this.drawTable(
         doc,
-        ['Project', 'Company', 'Progress', 'Budget', 'Spent', 'Remaining'],
+        ['Project', 'Company', 'Progress', 'Units', 'Invoice', 'Remaining'],
         rows,
         [140, 110, 60, 70, 70, 65],
         { rowHeight: 24 },
@@ -675,7 +679,6 @@ export class ReportsService {
       where: {
         companyId: { in: companyIds },
         ...(dto.projectId && { id: dto.projectId }),
-        createdAt: { gte: start, lte: end },
         ...(userRole === 'manager' && {
           teamMembers: {
             some: {
@@ -689,16 +692,78 @@ export class ReportsService {
         company: { select: { id: true, name: true, logoUrl: true } },
         expenses: { select: { amount: true, status: true, category: true } },
         tasks: {
-          select: { status: true, estimatedHours: true, actualHours: true },
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            estimatedHours: true,
+            actualHours: true,
+            price: true,
+            subTasks: {
+              where: {
+                status: 'completed',
+                approvalDecision: 'approved',
+                completedAt: { gte: start, lte: end },
+              },
+              select: {
+                id: true,
+                title: true,
+                status: true,
+                approvalDecision: true,
+                completedAt: true,
+                price: true,
+                unit: {
+                  select: {
+                    id: true,
+                    name: true,
+                    floor: { select: { id: true, name: true } },
+                  },
+                },
+                taskAssignee: {
+                  select: {
+                    user: {
+                      select: { id: true, fullName: true },
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
         _count: { select: { teamMembers: true, tasks: true, floors: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
+    const includeBilling = this.canSeeInternalBilling(userRole);
 
     const totalBudget = projects.reduce((s, p) => s + (p.budget ?? 0), 0);
     const totalSpent = projects.reduce((s, p) => s + (p.spent ?? 0), 0);
     const totalRemaining = projects.reduce((s, p) => s + (p.remaining ?? 0), 0);
+    const totalBillableSubTasks = projects.reduce(
+      (sum, project) =>
+        sum +
+        project.tasks.reduce(
+          (taskSum, task) => taskSum + task.subTasks.length,
+          0,
+        ),
+      0,
+    );
+    const totalInvoiceAmount = includeBilling
+      ? projects.reduce(
+          (sum, project) =>
+            sum +
+            project.tasks.reduce(
+              (taskSum, task) =>
+                taskSum +
+                task.subTasks.reduce(
+                  (subTaskSum, subTask) => subTaskSum + (subTask.price ?? 0),
+                  0,
+                ),
+              0,
+            ),
+          0,
+        )
+      : 0;
 
     const byStatus = {
       planning: projects.filter((p) => p.status === 'planning').length,
@@ -718,6 +783,8 @@ export class ReportsService {
         totalBudget: Math.round(totalBudget * 100) / 100,
         totalSpent: Math.round(totalSpent * 100) / 100,
         totalRemaining: Math.round(totalRemaining * 100) / 100,
+        totalBillableSubTasks,
+        totalInvoiceAmount: Math.round(totalInvoiceAmount * 100) / 100,
         byStatus,
       },
       projects: projects.map((p) => {
@@ -727,6 +794,29 @@ export class ReportsService {
         const completedTasks = p.tasks.filter(
           (t) => t.status === 'completed',
         ).length;
+        const invoiceLines = p.tasks.flatMap((task) =>
+          task.subTasks.map((subTask) => ({
+            subTaskId: subTask.id,
+            taskId: task.id,
+            taskTitle: task.title,
+            title: subTask.title,
+            unit: subTask.unit
+              ? {
+                  id: subTask.unit.id,
+                  name: subTask.unit.name,
+                  floor: subTask.unit.floor,
+                }
+              : null,
+            worker: subTask.taskAssignee?.user ?? null,
+            completedAt: subTask.completedAt,
+            quantity: 1,
+            unitValue: includeBilling ? Math.round((subTask.price ?? 0) * 100) / 100 : 0,
+            lineTotal: includeBilling ? Math.round((subTask.price ?? 0) * 100) / 100 : 0,
+          })),
+        );
+        const invoiceTotal = includeBilling
+          ? invoiceLines.reduce((sum, line) => sum + line.lineTotal, 0)
+          : 0;
 
         return {
           id: p.id,
@@ -740,6 +830,9 @@ export class ReportsService {
           spent: p.spent,
           remaining: p.remaining,
           approvedExpenses: Math.round(approvedExpenses * 100) / 100,
+          billableSubTaskCount: invoiceLines.length,
+          invoiceTotal: Math.round(invoiceTotal * 100) / 100,
+          invoiceLines,
           taskCompletion:
             p.tasks.length > 0
               ? Math.round((completedTasks / p.tasks.length) * 100)
