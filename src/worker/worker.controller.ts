@@ -14,7 +14,10 @@ import {
   UploadedFiles,
   ParseUUIDPipe,
 } from '@nestjs/common';
-import { FileInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
+import {
+  FileInterceptor,
+  FileFieldsInterceptor,
+} from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { WorkerService } from './worker.service';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
@@ -68,7 +71,13 @@ export class WorkerController {
     @Query('page') page = '1',
     @Query('limit') limit = '10',
   ) {
-    return this.workerService.getMyTasks(workerId, status, search, +page, +limit);
+    return this.workerService.getMyTasks(
+      workerId,
+      status,
+      search,
+      +page,
+      +limit,
+    );
   }
 
   /**
@@ -83,7 +92,13 @@ export class WorkerController {
     @Query('page') page = '1',
     @Query('limit') limit = '10',
   ) {
-    return this.workerService.getSubTasks(workerId, status, search, +page, +limit);
+    return this.workerService.getSubTasks(
+      workerId,
+      status,
+      search,
+      +page,
+      +limit,
+    );
   }
 
   /**
@@ -129,10 +144,9 @@ export class WorkerController {
    */
   @Post('subtasks/:id/start')
   @UseInterceptors(
-    FileFieldsInterceptor(
-      [{ name: 'beforePhoto', maxCount: 1 }],
-      { storage: memoryStorage() },
-    ),
+    FileFieldsInterceptor([{ name: 'beforePhoto', maxCount: 1 }], {
+      storage: memoryStorage(),
+    }),
   )
   async startTask(
     @Param('id', ParseUUIDPipe) subTaskId: string,
@@ -152,10 +166,9 @@ export class WorkerController {
    */
   @Post('main-tasks/:id/start')
   @UseInterceptors(
-    FileFieldsInterceptor(
-      [{ name: 'beforePhoto', maxCount: 1 }],
-      { storage: memoryStorage() },
-    ),
+    FileFieldsInterceptor([{ name: 'beforePhoto', maxCount: 1 }], {
+      storage: memoryStorage(),
+    }),
   )
   async startMainTask(
     @Param('id', ParseUUIDPipe) taskId: string,
@@ -196,7 +209,12 @@ export class WorkerController {
     },
   ) {
     const uploadedFiles = await this.uploadTaskReportFiles(files);
-    return this.workerService.submitTaskReport(subTaskId, workerId, dto, uploadedFiles);
+    return this.workerService.submitTaskReport(
+      subTaskId,
+      workerId,
+      dto,
+      uploadedFiles,
+    );
   }
 
   /**
@@ -226,7 +244,12 @@ export class WorkerController {
     },
   ) {
     const uploadedFiles = await this.uploadTaskReportFiles(files);
-    return this.workerService.submitMainTaskReport(taskId, workerId, dto, uploadedFiles);
+    return this.workerService.submitMainTaskReport(
+      taskId,
+      workerId,
+      dto,
+      uploadedFiles,
+    );
   }
 
   /**
@@ -256,7 +279,12 @@ export class WorkerController {
     },
   ) {
     const uploadedFiles = await this.uploadTaskReportFiles(files);
-    return this.workerService.updateTaskReport(subTaskId, workerId, body, uploadedFiles);
+    return this.workerService.updateTaskReport(
+      subTaskId,
+      workerId,
+      body,
+      uploadedFiles,
+    );
   }
 
   /**
@@ -286,7 +314,12 @@ export class WorkerController {
     },
   ) {
     const uploadedFiles = await this.uploadTaskReportFiles(files);
-    return this.workerService.updateMainTaskReport(taskId, workerId, body, uploadedFiles);
+    return this.workerService.updateMainTaskReport(
+      taskId,
+      workerId,
+      body,
+      uploadedFiles,
+    );
   }
 
   /**
@@ -316,7 +349,12 @@ export class WorkerController {
     },
   ) {
     const uploadedFiles = await this.uploadTaskReportFiles(files);
-    return this.workerService.submitTaskReport(subTaskId, workerId, dto, uploadedFiles);
+    return this.workerService.submitTaskReport(
+      subTaskId,
+      workerId,
+      dto,
+      uploadedFiles,
+    );
   }
 
   /**
@@ -346,7 +384,12 @@ export class WorkerController {
     },
   ) {
     const uploadedFiles = await this.uploadTaskReportFiles(files);
-    return this.workerService.updateTaskReport(subTaskId, workerId, body, uploadedFiles);
+    return this.workerService.updateTaskReport(
+      subTaskId,
+      workerId,
+      body,
+      uploadedFiles,
+    );
   }
 
   /**
@@ -546,8 +589,12 @@ export class WorkerController {
     @Body() dto: UpdateProfileDto,
     @UploadedFile() file?: Express.Multer.File,
   ) {
-    const uploadedUrl = file ? await this.storageService.uploadFile(file, 'avatars') : undefined;
-    const avatarFile = uploadedUrl ? { ...file!, filename: uploadedUrl } : undefined;
+    const uploadedUrl = file
+      ? await this.storageService.uploadFile(file, 'avatars')
+      : undefined;
+    const avatarFile = uploadedUrl
+      ? { ...file, filename: uploadedUrl }
+      : undefined;
     return this.workerService.updateProfile(workerId, dto, avatarFile as any);
   }
 
@@ -601,9 +648,39 @@ export class WorkerController {
     const receipt = files?.receipt?.[0];
 
     return {
-      beforePhoto: beforePhoto ? [{ ...beforePhoto, filename: await this.storageService.uploadFile(beforePhoto, 'task-reports') }] : undefined,
-      afterPhoto: afterPhoto ? [{ ...afterPhoto, filename: await this.storageService.uploadFile(afterPhoto, 'task-reports') }] : undefined,
-      receipt: receipt ? [{ ...receipt, filename: await this.storageService.uploadFile(receipt, 'task-reports') }] : undefined,
+      beforePhoto: beforePhoto
+        ? [
+            {
+              ...beforePhoto,
+              filename: await this.storageService.uploadFile(
+                beforePhoto,
+                'task-reports',
+              ),
+            },
+          ]
+        : undefined,
+      afterPhoto: afterPhoto
+        ? [
+            {
+              ...afterPhoto,
+              filename: await this.storageService.uploadFile(
+                afterPhoto,
+                'task-reports',
+              ),
+            },
+          ]
+        : undefined,
+      receipt: receipt
+        ? [
+            {
+              ...receipt,
+              filename: await this.storageService.uploadFile(
+                receipt,
+                'task-reports',
+              ),
+            },
+          ]
+        : undefined,
     };
   }
 

@@ -1,12 +1,15 @@
 import { IsString, IsNotEmpty, MinLength } from 'class-validator';
 
 export class AcceptInviteDto {
-  @IsString() @IsNotEmpty()
+  @IsString()
+  @IsNotEmpty()
   token!: string;
 
-  @IsString() @IsNotEmpty()
+  @IsString()
+  @IsNotEmpty()
   fullName!: string;
 
-  @IsString() @MinLength(6)
+  @IsString()
+  @MinLength(6)
   password!: string;
 }

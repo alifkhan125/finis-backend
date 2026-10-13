@@ -34,10 +34,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   private isUuid(value: string) {
-    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value,
+    );
   }
 
-  async validate(payload: { sub?: string; id?: string; userId?: string; email?: string; role?: string }) {
+  async validate(payload: {
+    sub?: string;
+    id?: string;
+    userId?: string;
+    email?: string;
+    role?: string;
+  }) {
     const userId = payload.sub ?? payload.id ?? payload.userId ?? null;
     const email = payload.email ?? null;
 
@@ -72,7 +80,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       });
     }
 
-    if (!user || ((user.status === 'suspended' || user.status === 'inactive') && user.role !== 'super_admin')) {
+    if (
+      !user ||
+      ((user.status === 'suspended' || user.status === 'inactive') &&
+        user.role !== 'super_admin')
+    ) {
       throw new UnauthorizedException('User not active');
     }
 

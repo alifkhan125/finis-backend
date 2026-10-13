@@ -39,7 +39,7 @@ export class ProjectController {
   constructor(
     private projectService: ProjectService,
     private readonly storageService: StorageService,
-  ) { }
+  ) {}
   // ─── PROJECTS ──────────────────────────────────────────────────────────────
 
   /** GET /admin/projects */
@@ -62,7 +62,6 @@ export class ProjectController {
   ) {
     return this.projectService.getProjectWorkerSummary(userId, userRole);
   }
-
 
   /** GET /admin/projects/names */
   @Get('names')
@@ -110,7 +109,10 @@ export class ProjectController {
     @Query('type') type?: string,
     @Query('search') search?: string,
   ) {
-    return this.projectService.getProjectDocuments(id, userId, userRole, { type, search });
+    return this.projectService.getProjectDocuments(id, userId, userRole, {
+      type,
+      search,
+    });
   }
 
   /** POST /admin/projects/:id/documents
@@ -125,8 +127,16 @@ export class ProjectController {
     @CurrentUser('role') userRole: string,
     @UploadedFile() file?: Express.Multer.File,
   ) {
-    const fileUrl = file ? await this.storageService.uploadFile(file, 'project-documents') : undefined;
-    return this.projectService.uploadProjectDocument(id, userId, userRole, file, fileUrl);
+    const fileUrl = file
+      ? await this.storageService.uploadFile(file, 'project-documents')
+      : undefined;
+    return this.projectService.uploadProjectDocument(
+      id,
+      userId,
+      userRole,
+      file,
+      fileUrl,
+    );
   }
 
   /** DELETE /admin/projects/:id/documents/:docId */
@@ -138,7 +148,12 @@ export class ProjectController {
     @CurrentUser('id') userId: string,
     @CurrentUser('role') userRole: string,
   ) {
-    return this.projectService.deleteProjectDocument(id, docId, userId, userRole);
+    return this.projectService.deleteProjectDocument(
+      id,
+      docId,
+      userId,
+      userRole,
+    );
   }
 
   /** PUT /admin/projects/:id — Edit Project screen */
@@ -242,11 +257,37 @@ export class ProjectController {
     return this.projectService.addRoom(id, floorId, dto, userId, userRole);
   }
 
+  /** POST /admin/projects/:id/floors/:floorId/rooms */
+  @Post(':id/floors/:floorId/rooms')
+  @Roles(UserRole.admin, UserRole.manager)
+  addRoomAlias(
+    @Param('id') id: string,
+    @Param('floorId') floorId: string,
+    @Body() dto: AddRoomDto,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: string,
+  ) {
+    return this.projectService.addRoom(id, floorId, dto, userId, userRole);
+  }
+
   /** GET /admin/projects/:id/floors/:floorId/units
    *  Returns: unit names only
    */
   @Get(':id/floors/:floorId/units')
   getRoomNames(
+    @Param('id') id: string,
+    @Param('floorId') floorId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: string,
+  ) {
+    return this.projectService.getRoomNames(id, floorId, userId, userRole);
+  }
+
+  /** GET /admin/projects/:id/floors/:floorId/rooms
+   *  Returns: room/unit names only
+   */
+  @Get(':id/floors/:floorId/rooms')
+  getRoomNamesAlias(
     @Param('id') id: string,
     @Param('floorId') floorId: string,
     @CurrentUser('id') userId: string,
@@ -361,7 +402,12 @@ export class ProjectController {
     @CurrentUser('id') userId: string,
     @CurrentUser('role') userRole: string,
   ) {
-    return this.projectService.getManagerWorkersCount(id, managerId, userId, userRole);
+    return this.projectService.getManagerWorkersCount(
+      id,
+      managerId,
+      userId,
+      userRole,
+    );
   }
 
   /** GET /admin/projects/:id/team/managers/:managerId/workers
@@ -374,7 +420,12 @@ export class ProjectController {
     @CurrentUser('id') userId: string,
     @CurrentUser('role') userRole: string,
   ) {
-    return this.projectService.getWorkersByManager(id, managerId, userId, userRole);
+    return this.projectService.getWorkersByManager(
+      id,
+      managerId,
+      userId,
+      userRole,
+    );
   }
 
   /** POST /admin/projects/:id/team/managers */
@@ -386,7 +437,14 @@ export class ProjectController {
     @CurrentUser('id') adminId: string,
     @CurrentUser('role') userRole: string,
   ) {
-    return this.projectService.addMemberByRole(id, dto.userId, adminId, 'manager', undefined, userRole);
+    return this.projectService.addMemberByRole(
+      id,
+      dto.userId,
+      adminId,
+      'manager',
+      undefined,
+      userRole,
+    );
   }
 
   /** POST /admin/projects/:id/team/workers */
@@ -398,7 +456,14 @@ export class ProjectController {
     @CurrentUser('id') adminId: string,
     @CurrentUser('role') userRole: string, // ← যোগ করো
   ) {
-    return this.projectService.addMemberByRole(id, dto.userId, adminId, 'worker', dto.managerId, userRole);
+    return this.projectService.addMemberByRole(
+      id,
+      dto.userId,
+      adminId,
+      'worker',
+      dto.managerId,
+      userRole,
+    );
   }
 
   /** DELETE /admin/projects/:id/team/:userId */
@@ -418,11 +483,25 @@ export class ProjectController {
   @Roles(UserRole.admin, UserRole.manager)
   assignSchedule(
     @Param('id') id: string,
-    @Body() body: { userIds: string[]; startTime: string; endTime: string; days?: string[] },
+    @Body()
+    body: {
+      userIds: string[];
+      startTime: string;
+      endTime: string;
+      days?: string[];
+    },
     @CurrentUser('id') adminId: string,
     @CurrentUser('role') userRole: string,
   ) {
-    return this.projectService.assignSchedule(id, body.userIds, body.startTime, body.endTime, adminId, userRole, body.days as any);
+    return this.projectService.assignSchedule(
+      id,
+      body.userIds,
+      body.startTime,
+      body.endTime,
+      adminId,
+      userRole,
+      body.days as any,
+    );
   }
 
   /** PATCH /admin/projects/:id/schedule/:scheduleId */
@@ -435,7 +514,13 @@ export class ProjectController {
     @CurrentUser('id') adminId: string,
     @CurrentUser('role') userRole: string,
   ) {
-    return this.projectService.updateSchedule(projectId, scheduleId, body, adminId, userRole);
+    return this.projectService.updateSchedule(
+      projectId,
+      scheduleId,
+      body,
+      adminId,
+      userRole,
+    );
   }
 
   /** DELETE /admin/projects/:id/schedule/assignments/:assignmentId */
@@ -447,7 +532,12 @@ export class ProjectController {
     @CurrentUser('id') adminId: string,
     @CurrentUser('role') userRole: string,
   ) {
-    return this.projectService.deleteScheduleAssignment(projectId, assignmentId, adminId, userRole);
+    return this.projectService.deleteScheduleAssignment(
+      projectId,
+      assignmentId,
+      adminId,
+      userRole,
+    );
   }
 
   // ─── GEOFENCES ─────────────────────────────────────────────────────────────
@@ -508,7 +598,6 @@ export class ProjectController {
   ) {
     return this.projectService.deleteGeofence(id, geoId, userId, userRole);
   }
-
 
   /** GET /admin/projects/:id/geofences/location-logs */
   @Get(':id/geofences/location-logs')

@@ -1,5 +1,11 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsEmail, IsOptional, IsString, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsEmail,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from 'class-validator';
 
 export class MailboxAttachmentDto {
   @IsString()

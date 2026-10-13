@@ -20,7 +20,11 @@ export class MailService {
   }
 
   private getFromAddress() {
-    return this.config.get('MAIL_FROM') ?? this.config.get('MAIL_USER') ?? 'onboarding@proconstructiq.com';
+    return (
+      this.config.get('MAIL_FROM') ??
+      this.config.get('MAIL_USER') ??
+      'onboarding@proconstructiq.com'
+    );
   }
 
   async sendInviteEmail(email: string, token: string, role: string) {
@@ -42,7 +46,7 @@ export class MailService {
       });
       this.logger.log(`Invite email sent to ${email}`);
     } catch (error) {
-      this.logger.error(`Failed to send invite email to ${email}`, error as any);
+      this.logger.error(`Failed to send invite email to ${email}`, error);
     }
   }
 
@@ -67,7 +71,7 @@ export class MailService {
       });
       this.logger.log(`Credentials email sent to ${email}`);
     } catch (error) {
-      this.logger.error(`Failed to send credentials email to ${email}`, error as any);
+      this.logger.error(`Failed to send credentials email to ${email}`, error);
     }
   }
 
@@ -91,11 +95,16 @@ export class MailService {
       });
       this.logger.log(`OTP email sent to ${email}`);
     } catch (error) {
-      this.logger.error(`Failed to send OTP to ${email}`, error as any);
+      this.logger.error(`Failed to send OTP to ${email}`, error);
     }
   }
 
-  async sendCompanyContactEmail(to: string, companyName: string, subject: string, message: string) {
+  async sendCompanyContactEmail(
+    to: string,
+    companyName: string,
+    subject: string,
+    message: string,
+  ) {
     try {
       await this.transporter.sendMail({
         from: this.getFromAddress(),
@@ -113,7 +122,7 @@ export class MailService {
       });
       this.logger.log(`Company contact email sent to ${to}`);
     } catch (error) {
-      this.logger.error(`Failed to send company contact email to ${to}`, error as any);
+      this.logger.error(`Failed to send company contact email to ${to}`, error);
       throw error;
     }
   }

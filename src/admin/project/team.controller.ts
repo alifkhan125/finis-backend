@@ -6,7 +6,6 @@ import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { UserRole } from '../../generated/prisma/client';
 import { ProjectService } from '../project/project.service';
 
-
 @Controller('admin/team')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.admin, UserRole.super_admin, UserRole.manager)
@@ -21,7 +20,14 @@ export class TeamController {
     @Query('limit') limit = '50',
     @Query('search') search?: string,
   ) {
-    return this.projectService.getAvailableByRole(adminId, 'manager', +page, +limit, search, userRole);
+    return this.projectService.getAvailableByRole(
+      adminId,
+      'manager',
+      +page,
+      +limit,
+      search,
+      userRole,
+    );
   }
 
   @Get('available-workers')
@@ -32,6 +38,13 @@ export class TeamController {
     @Query('limit') limit = '50',
     @Query('search') search?: string,
   ) {
-    return this.projectService.getAvailableByRole(adminId, 'worker', +page, +limit, search, userRole);
+    return this.projectService.getAvailableByRole(
+      adminId,
+      'worker',
+      +page,
+      +limit,
+      search,
+      userRole,
+    );
   }
-} 
+}

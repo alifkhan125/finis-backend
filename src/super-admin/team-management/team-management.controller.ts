@@ -24,7 +24,7 @@ import { TeamManagementService } from './team-management.service';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.super_admin, UserRole.admin)
 export class TeamManagementController {
-  constructor(private teamService: TeamManagementService) { }
+  constructor(private teamService: TeamManagementService) {}
 
   /** GET /super_admin/team/admins/stats */
   @Get('admins/stats')
@@ -78,24 +78,23 @@ export class TeamManagementController {
     @Query('search') search?: string,
     @Query('role') role?: string,
   ) {
-    return this.teamService.getPendingInvitations(userId, userRole, search, role);
+    return this.teamService.getPendingInvitations(
+      userId,
+      userRole,
+      search,
+      role,
+    );
   }
 
   /** PATCH /super_admin/team/users/:id/status */
   @Patch('users/:id/status')
-  updateUserStatus(
-    @Param('id') id: string,
-    @Body('status') status: string,
-  ) {
+  updateUserStatus(@Param('id') id: string, @Body('status') status: string) {
     return this.teamService.updateUserStatus(id, status);
   }
 
   /** PATCH /super_admin/team/users/:id */
   @Patch('users/:id')
-  updateUserDetails(
-    @Param('id') id: string,
-    @Body() data: any,
-  ) {
+  updateUserDetails(@Param('id') id: string, @Body() data: any) {
     return this.teamService.updateUserDetails(id, data);
   }
 
@@ -131,7 +130,12 @@ export class TeamManagementController {
     @Body('category') category?: string,
     @Body('name') customName?: string,
   ) {
-    return this.teamService.uploadWorkerDocument(id, file, category, customName);
+    return this.teamService.uploadWorkerDocument(
+      id,
+      file,
+      category,
+      customName,
+    );
   }
 
   /** DELETE /super_admin/team/users/:id/documents/:documentId */

@@ -126,10 +126,7 @@ export class SubscriptionController {
    * Body: { planId }
    */
   @Patch('tenants/:id/plan')
-  updateTenantPlan(
-    @Param('id') id: string,
-    @Body() dto: UpdateTenantPlanDto,
-  ) {
+  updateTenantPlan(@Param('id') id: string, @Body() dto: UpdateTenantPlanDto) {
     return this.subscriptionService.updateTenantPlan(id, dto);
   }
 

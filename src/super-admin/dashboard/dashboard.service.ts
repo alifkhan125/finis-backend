@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { SuperAdminDashboardQueryDto, AttendanceQueryDto } from './dto/dashboard.dto';
+import {
+  SuperAdminDashboardQueryDto,
+  AttendanceQueryDto,
+} from './dto/dashboard.dto';
 
 @Injectable()
 export class SuperAdminDashboardService {
@@ -124,7 +127,11 @@ export class SuperAdminDashboardService {
         where: { status: 'active', createdAt: { lte: prevEnd } },
       }),
       this.prisma.user.count({
-        where: { role: 'worker', status: 'active', createdAt: { lte: prevEnd } },
+        where: {
+          role: 'worker',
+          status: 'active',
+          createdAt: { lte: prevEnd },
+        },
       }),
       this.prisma.payroll.aggregate({
         _sum: { netPay: true },
@@ -219,7 +226,14 @@ export class SuperAdminDashboardService {
 
     const revenueByPlanMap = new Map<
       string,
-      { planId: string; planName: string; salesCount: number; revenue: number; monthlyCount: number; yearlyCount: number }
+      {
+        planId: string;
+        planName: string;
+        salesCount: number;
+        revenue: number;
+        monthlyCount: number;
+        yearlyCount: number;
+      }
     >();
 
     for (const purchase of subscriptionPurchases) {
@@ -251,7 +265,10 @@ export class SuperAdminDashboardService {
     const activeSubscriptionCount = activeTenants.length;
     const activeSubscriptionAmount = activeTenants.reduce((sum, tenant) => {
       const billedAmount = this.getBilledAmount(
-        { priceMonthly: tenant.plan.priceMonthly, priceYearly: tenant.plan.priceYearly ?? null },
+        {
+          priceMonthly: tenant.plan.priceMonthly,
+          priceYearly: tenant.plan.priceYearly ?? null,
+        },
         tenant.planInterval,
       );
       return sum + Number(billedAmount ?? 0);
@@ -273,8 +290,18 @@ export class SuperAdminDashboardService {
     `;
 
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     const forecastData = months.map((name, i) => {
       const m = monthlyTaskData.find((d) => d.month === i + 1);
@@ -290,12 +317,15 @@ export class SuperAdminDashboardService {
       : null;
     const avgCompletion = nonZero.length
       ? Math.round(
-          (nonZero.reduce((s, d) => s + d.completionPct, 0) / nonZero.length) * 10,
+          (nonZero.reduce((s, d) => s + d.completionPct, 0) / nonZero.length) *
+            10,
         ) / 10
       : 0;
     const overallCompletion = nonZero.length
       ? Math.round(
-          (forecastData.reduce((s, d) => s + d.completionPct, 0) / nonZero.length) * 10,
+          (forecastData.reduce((s, d) => s + d.completionPct, 0) /
+            nonZero.length) *
+            10,
         ) / 10
       : 0;
 
@@ -507,10 +537,14 @@ export class SuperAdminDashboardService {
     const unified = [
       ...taskReports.map((r) => ({
         type:
-          r.reviewDecision === 'approved' ? 'task_completed' : 'report_uploaded',
+          r.reviewDecision === 'approved'
+            ? 'task_completed'
+            : 'report_uploaded',
         actor: r.worker,
         description:
-          r.reviewDecision === 'approved' ? 'completed task' : 'uploaded report',
+          r.reviewDecision === 'approved'
+            ? 'completed task'
+            : 'uploaded report',
         subject: r.task.title,
         project: r.task.project?.name ?? null,
         occurredAt: r.submittedAt,
@@ -656,7 +690,16 @@ export class SuperAdminDashboardService {
 
       if (parts.length === 3) {
         // Base UTC day
-        const baseUtc = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 0, 0, 0));
+        const baseUtc = new Date(
+          Date.UTC(
+            Number(parts[0]),
+            Number(parts[1]) - 1,
+            Number(parts[2]),
+            0,
+            0,
+            0,
+          ),
+        );
         // Covers client day (UTC+6 / BST) with cushion (covers UTC to UTC+8):
         // start: 16:00 UTC previous day, end: 20:00 UTC current day
         start = new Date(baseUtc.getTime() - 8 * 60 * 60 * 1000);
@@ -679,65 +722,86 @@ export class SuperAdminDashboardService {
       };
     }
 
-    const [total, present, late, absent, activeCheckIns, records] = await Promise.all([
-      this.prisma.attendance.count({
-        where: isAll ? undefined : dateWhere,
-      }),
-      this.prisma.attendance.count({
-        where: isAll
-          ? { OR: [{ status: { in: ['present', 'late'] } }, { sessions: { some: { checkOutTime: null } } }] }
-          : { AND: [dateWhere, { OR: [{ status: { in: ['present', 'late'] } }, { sessions: { some: { checkOutTime: null } } }] }] },
-      }),
-      this.prisma.attendance.count({
-        where: isAll
-          ? { status: 'late' }
-          : { AND: [dateWhere, { status: 'late' }] },
-      }),
-      this.prisma.attendance.count({
-        where: isAll
-          ? { status: 'absent' }
-          : { AND: [dateWhere, { status: 'absent' }] },
-      }),
-      this.prisma.attendance.count({
-        where: isAll
-          ? { sessions: { some: { checkOutTime: null } } }
-          : { AND: [dateWhere, { sessions: { some: { checkOutTime: null } } }] },
-      }),
-      this.prisma.attendance.findMany({
-        where: isAll ? undefined : dateWhere,
-        skip: (page - 1) * limit,
-        take: limit,
-        orderBy: { updatedAt: 'desc' },
-        include: {
-          user: {
-            select: {
-              id: true,
-              fullName: true,
-              avatarUrl: true,
-              role: true,
-              projectMemberships: {
-                take: 1,
-                orderBy: { createdAt: 'desc' },
-                include: { project: { select: { name: true } } },
+    const [total, present, late, absent, activeCheckIns, records] =
+      await Promise.all([
+        this.prisma.attendance.count({
+          where: isAll ? undefined : dateWhere,
+        }),
+        this.prisma.attendance.count({
+          where: isAll
+            ? {
+                OR: [
+                  { status: { in: ['present', 'late'] } },
+                  { sessions: { some: { checkOutTime: null } } },
+                ],
+              }
+            : {
+                AND: [
+                  dateWhere,
+                  {
+                    OR: [
+                      { status: { in: ['present', 'late'] } },
+                      { sessions: { some: { checkOutTime: null } } },
+                    ],
+                  },
+                ],
+              },
+        }),
+        this.prisma.attendance.count({
+          where: isAll
+            ? { status: 'late' }
+            : { AND: [dateWhere, { status: 'late' }] },
+        }),
+        this.prisma.attendance.count({
+          where: isAll
+            ? { status: 'absent' }
+            : { AND: [dateWhere, { status: 'absent' }] },
+        }),
+        this.prisma.attendance.count({
+          where: isAll
+            ? { sessions: { some: { checkOutTime: null } } }
+            : {
+                AND: [
+                  dateWhere,
+                  { sessions: { some: { checkOutTime: null } } },
+                ],
+              },
+        }),
+        this.prisma.attendance.findMany({
+          where: isAll ? undefined : dateWhere,
+          skip: (page - 1) * limit,
+          take: limit,
+          orderBy: { updatedAt: 'desc' },
+          include: {
+            user: {
+              select: {
+                id: true,
+                fullName: true,
+                avatarUrl: true,
+                role: true,
+                projectMemberships: {
+                  take: 1,
+                  orderBy: { createdAt: 'desc' },
+                  include: { project: { select: { name: true } } },
+                },
+              },
+            },
+            sessions: {
+              orderBy: { checkInTime: 'desc' },
+              take: 1,
+              select: {
+                checkInTime: true,
+                checkOutTime: true,
+                inLat: true,
+                inLng: true,
+                outLat: true,
+                outLng: true,
+                zoneSeconds: true,
               },
             },
           },
-          sessions: {
-            orderBy: { checkInTime: 'desc' },
-            take: 1,
-            select: {
-              checkInTime: true,
-              checkOutTime: true,
-              inLat: true,
-              inLng: true,
-              outLat: true,
-              outLng: true,
-              zoneSeconds: true,
-            },
-          },
-        },
-      }),
-    ]);
+        }),
+      ]);
 
     return {
       stats: {
@@ -746,11 +810,14 @@ export class SuperAdminDashboardService {
         late,
         absent,
         activeCheckIns,
-        attendanceRate: total > 0 ? Math.round((present / total) * 1000) / 10 : 0,
+        attendanceRate:
+          total > 0 ? Math.round((present / total) * 1000) / 10 : 0,
       },
       data: records.map((attendance) => {
         const latestSession = attendance.sessions[0];
-        const isActiveCheckIn = Boolean(latestSession && !latestSession.checkOutTime);
+        const isActiveCheckIn = Boolean(
+          latestSession && !latestSession.checkOutTime,
+        );
         const displayDate = attendance.date;
         const displayStatus = isActiveCheckIn ? 'present' : attendance.status;
 
@@ -763,8 +830,11 @@ export class SuperAdminDashboardService {
             id: attendance.user.id,
             fullName: attendance.user.fullName,
             avatarUrl: attendance.user.avatarUrl,
-            role: attendance.user.projectMemberships?.[0]?.role ?? attendance.user.role,
-            projectName: attendance.user.projectMemberships?.[0]?.project?.name ?? null,
+            role:
+              attendance.user.projectMemberships?.[0]?.role ??
+              attendance.user.role,
+            projectName:
+              attendance.user.projectMemberships?.[0]?.project?.name ?? null,
           },
           session: latestSession
             ? {

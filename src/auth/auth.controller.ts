@@ -1,6 +1,14 @@
 import {
-  Controller, Post, Get, Delete, Body, Param, Query,
-  UseGuards, HttpCode, HttpStatus,
+  Controller,
+  Post,
+  Get,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt.guard';
@@ -17,7 +25,7 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) { }
+  constructor(private authService: AuthService) {}
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -78,7 +86,13 @@ export class AuthController {
     @Query('status') filterStatus?: string,
     @Query('search') search?: string,
   ) {
-    return this.authService.getInvitations(userId, userRole, filterRole, filterStatus, search);
+    return this.authService.getInvitations(
+      userId,
+      userRole,
+      filterRole,
+      filterStatus,
+      search,
+    );
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -94,7 +108,6 @@ export class AuthController {
   cancelInvitation(@Param('id') id: string, @CurrentUser('id') userId: string) {
     return this.authService.cancelInvitation(id, userId);
   }
-
 
   @UseGuards(JwtAuthGuard)
   @Post('change-password')

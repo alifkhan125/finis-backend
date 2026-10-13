@@ -1,9 +1,13 @@
-import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  DeleteObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { extname } from 'path';
 import sharp from 'sharp';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class R2Service {
@@ -15,13 +19,24 @@ export class R2Service {
     const accountId = this.config.get<string>('R2_ACCOUNT_ID');
     const configuredEndpoint = this.config.get<string>('R2_ENDPOINT');
     const endpoint =
-      configuredEndpoint || (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : undefined);
+      configuredEndpoint ||
+      (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : undefined);
     const accessKeyId = this.config.get<string>('R2_ACCESS_KEY_ID');
     const secretAccessKey = this.config.get<string>('R2_SECRET_ACCESS_KEY');
-    this.bucket = this.config.get<string>('R2_BUCKET_NAME') || this.config.get<string>('R2_BUCKET');
-    this.publicBaseUrl = this.config.get<string>('R2_PUBLIC_URL')?.replace(/\/+$/, '');
+    this.bucket =
+      this.config.get<string>('R2_BUCKET_NAME') ||
+      this.config.get<string>('R2_BUCKET');
+    this.publicBaseUrl = this.config
+      .get<string>('R2_PUBLIC_URL')
+      ?.replace(/\/+$/, '');
 
-    if (!endpoint || !accessKeyId || !secretAccessKey || !this.bucket || !this.publicBaseUrl) {
+    if (
+      !endpoint ||
+      !accessKeyId ||
+      !secretAccessKey ||
+      !this.bucket ||
+      !this.publicBaseUrl
+    ) {
       return;
     }
 
@@ -36,7 +51,10 @@ export class R2Service {
     });
   }
 
-  async uploadFile(file: Express.Multer.File, folder: string = 'uploads'): Promise<string> {
+  async uploadFile(
+    file: Express.Multer.File,
+    folder: string = 'uploads',
+  ): Promise<string> {
     if (!this.r2 || !this.bucket || !this.publicBaseUrl) {
       throw new Error('R2 storage is not configured');
     }
@@ -56,7 +74,7 @@ export class R2Service {
 
     const ext = isImage ? '.webp' : extname(file.originalname);
     const contentType = isImage ? 'image/webp' : file.mimetype;
-    const key = `${folder}/${uuidv4()}${ext}`;
+    const key = `${folder}/${randomUUID()}${ext}`;
 
     await this.r2.send(
       new PutObjectCommand({

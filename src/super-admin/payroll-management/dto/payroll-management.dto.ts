@@ -22,43 +22,51 @@ export class UpdatePayrollConfigDto {
   // ─── Employee Deductions ──────────────────────────────────────────────────
   @IsOptional()
   @IsNumber()
-  @Min(0) @Max(100)
+  @Min(0)
+  @Max(100)
   cppEmployeeRate?: number;
 
   @IsOptional()
   @IsNumber()
-  @Min(0) @Max(100)
+  @Min(0)
+  @Max(100)
   eiEmployeeRate?: number;
 
   @IsOptional()
   @IsNumber()
-  @Min(0) @Max(100)
+  @Min(0)
+  @Max(100)
   federalTaxRate?: number;
 
   @IsOptional()
   @IsNumber()
-  @Min(0) @Max(100)
+  @Min(0)
+  @Max(100)
   provincialTaxRate?: number;
 
   // ─── Employer Contributions ───────────────────────────────────────────────
   @IsOptional()
   @IsNumber()
-  @Min(0) @Max(100)
+  @Min(0)
+  @Max(100)
   cppEmployerRate?: number;
 
   @IsOptional()
   @IsNumber()
-  @Min(0) @Max(100)
+  @Min(0)
+  @Max(100)
   eiEmployerRate?: number;
 
   @IsOptional()
   @IsNumber()
-  @Min(0) @Max(100)
+  @Min(0)
+  @Max(100)
   wsibRate?: number;
 
   @IsOptional()
   @IsNumber()
-  @Min(0) @Max(100)
+  @Min(0)
+  @Max(100)
   vacationPayRate?: number;
 }
 

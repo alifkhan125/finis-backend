@@ -1,23 +1,18 @@
-import {
-  IsString,
-  IsEnum,
-  IsOptional,
-  IsDateString,
-} from 'class-validator';
+import { IsString, IsEnum, IsOptional, IsDateString } from 'class-validator';
 
 export enum ReportType {
-  payroll             = 'payroll',
-  project_invoices    = 'project_invoices',
-  worker_performance  = 'worker_performance',
-  expense             = 'expense',
+  payroll = 'payroll',
+  project_invoices = 'project_invoices',
+  worker_performance = 'worker_performance',
+  expense = 'expense',
 }
 
 export enum PeriodFrequency {
-  daily    = 'daily',
-  weekly   = 'weekly',
-  monthly  = 'monthly',
+  daily = 'daily',
+  weekly = 'weekly',
+  monthly = 'monthly',
   quarterly = 'quarterly',
-  yearly   = 'yearly',
+  yearly = 'yearly',
 }
 
 export class GenerateReportDto {

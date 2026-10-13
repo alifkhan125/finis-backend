@@ -34,12 +34,36 @@ export class TaskService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
-  ) { }
+  ) {}
 
   private normalizePagination(query: PaginationInput) {
     const page = Math.max(1, Number(query.page ?? 1) || 1);
     const limit = Math.max(1, Number(query.limit ?? 10) || 10);
     return { page, limit, skip: (page - 1) * limit };
+  }
+
+  private canManageTaskPrice(userRole: string) {
+    return userRole === UserRole.admin || userRole === UserRole.super_admin;
+  }
+
+  private normalizePrice(price: unknown) {
+    if (price === undefined || price === null || price === '') return undefined;
+    const numericPrice = Number(price);
+    if (!Number.isFinite(numericPrice) || numericPrice < 0) {
+      throw new BadRequestException('Price must be a non-negative number');
+    }
+    return Math.round(numericPrice * 100) / 100;
+  }
+
+  private assertCanWriteTaskPrice(userRole: string, price: unknown) {
+    if (
+      price !== undefined &&
+      price !== null &&
+      price !== '' &&
+      !this.canManageTaskPrice(userRole)
+    ) {
+      throw new ForbiddenException('Only admin can assign task price');
+    }
   }
 
   private async getProjectNotificationRecipients(
@@ -112,10 +136,20 @@ export class TaskService {
   private async notifyProjectRecipients(
     projectId: string,
     roles: TaskNotificationRole[],
-    payload: { title: string; body: string; type: 'task' | 'report'; refId: string; refType: string },
+    payload: {
+      title: string;
+      body: string;
+      type: 'task' | 'report';
+      refId: string;
+      refType: string;
+    },
     excludeUserIds: string[] = [],
   ) {
-    const recipientIds = await this.getProjectNotificationRecipients(projectId, roles, excludeUserIds);
+    const recipientIds = await this.getProjectNotificationRecipients(
+      projectId,
+      roles,
+      excludeUserIds,
+    );
 
     await Promise.all(
       recipientIds.map((userId) =>
@@ -133,7 +167,9 @@ export class TaskService {
 
   private async getProjectIdsForUser(userId: string, userRole: string) {
     if (userRole === UserRole.super_admin) {
-      const projects = await this.prisma.project.findMany({ select: { id: true } });
+      const projects = await this.prisma.project.findMany({
+        select: { id: true },
+      });
       return projects.map((project) => project.id);
     }
 
@@ -159,7 +195,11 @@ export class TaskService {
     return memberships.map((membership) => membership.projectId);
   }
 
-  private async verifyTaskAccess(taskId: string, userId: string, userRole: string) {
+  private async verifyTaskAccess(
+    taskId: string,
+    userId: string,
+    userRole: string,
+  ) {
     const task = await this.prisma.task.findUnique({
       where: { id: taskId },
       include: { project: { include: { company: true } } },
@@ -199,14 +239,20 @@ export class TaskService {
     return taskUnit;
   }
 
-  private async resolveTaskAssignee(taskId: string, unitId: string, userId?: string) {
+  private async resolveTaskAssignee(
+    taskId: string,
+    unitId: string,
+    userId?: string,
+  ) {
     // Worker assignment is task-level now (not per-unit), so unitId is no
     // longer part of the lookup — it's kept as a param for callers/back-compat.
     if (userId) {
       const assignee = await this.prisma.taskAssignee.findFirst({
         where: { taskId, userId },
         include: {
-          user: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+          user: {
+            select: { id: true, fullName: true, avatarUrl: true, role: true },
+          },
           unit: { select: { id: true, name: true } },
         },
       });
@@ -218,7 +264,9 @@ export class TaskService {
       where: { taskId },
       orderBy: { assignedAt: 'asc' },
       include: {
-        user: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+        user: {
+          select: { id: true, fullName: true, avatarUrl: true, role: true },
+        },
         unit: { select: { id: true, name: true } },
       },
     });
@@ -248,7 +296,8 @@ export class TaskService {
       }
 
       existing.subTaskCount += 1;
-      existing.statusSummary[subTask.status] = (existing.statusSummary[subTask.status] ?? 0) + 1;
+      existing.statusSummary[subTask.status] =
+        (existing.statusSummary[subTask.status] ?? 0) + 1;
     }
 
     return Array.from(grouped.values());
@@ -285,16 +334,25 @@ export class TaskService {
     if (!projectId) return;
     const [totalTasks, completedTasks] = await Promise.all([
       this.prisma.task.count({ where: { projectId } }),
-      this.prisma.task.count({ where: { projectId, status: 'completed' } })
+      this.prisma.task.count({ where: { projectId, status: 'completed' } }),
     ]);
-    const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
-    await this.prisma.project.update({ where: { id: projectId }, data: { progress } });
+    const progress =
+      totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+    await this.prisma.project.update({
+      where: { id: projectId },
+      data: { progress },
+    });
   }
 
   private buildTaskLocations(task: any) {
     const floorMap = new Map<
       string,
-      { id: string; name: string; floorNumber: number; units: Array<{ id: string; name: string }> }
+      {
+        id: string;
+        name: string;
+        floorNumber: number;
+        units: Array<{ id: string; name: string }>;
+      }
     >();
 
     for (const entry of task.taskFloors ?? []) {
@@ -311,7 +369,8 @@ export class TaskService {
 
     for (const entry of task.taskUnits ?? []) {
       if (!entry.unit) continue;
-      const floorId = entry.unit.floor?.id ?? entry.unit.floorId ?? task.floorId ?? null;
+      const floorId =
+        entry.unit.floor?.id ?? entry.unit.floorId ?? task.floorId ?? null;
       const floorName = entry.unit.floor?.name ?? null;
       const floorNumber = entry.unit.floor?.floorNumber ?? 0;
 
@@ -326,7 +385,7 @@ export class TaskService {
         });
       }
 
-      const floor = floorMap.get(floorId)!;
+      const floor = floorMap.get(floorId);
       if (!floor.units.some((unit) => unit.id === entry.unit.id)) {
         floor.units.push({ id: entry.unit.id, name: entry.unit.name });
       }
@@ -344,7 +403,9 @@ export class TaskService {
     return locations
       .map((floor) => {
         const unitNames = floor.units.map((unit) => unit.name);
-        return unitNames.length > 0 ? `${floor.name} - ${unitNames.join(', ')}` : floor.name;
+        return unitNames.length > 0
+          ? `${floor.name} - ${unitNames.join(', ')}`
+          : floor.name;
       })
       .join('; ');
   }
@@ -363,15 +424,21 @@ export class TaskService {
     const latestReport = entity?.reports?.[0] ?? entity?.latestReport ?? null;
     const status = entity?.status ?? 'pending';
     const startedAt = entity?.startedAt ?? null;
-    const submittedAt = entity?.submittedAt ?? latestReport?.submittedAt ?? null;
+    const submittedAt =
+      entity?.submittedAt ?? latestReport?.submittedAt ?? null;
 
-    const hasStarted = Boolean(startedAt) || ['in_progress', 'review', 'completed'].includes(status);
+    const hasStarted =
+      Boolean(startedAt) ||
+      ['in_progress', 'review', 'completed'].includes(status);
     const hasBeforePhoto = Boolean(latestReport?.beforePhotoUrl);
     const hasAfterPhoto = Boolean(latestReport?.afterPhotoUrl);
     const hasUpload = Boolean(
-      latestReport?.beforePhotoUrl || latestReport?.afterPhotoUrl || latestReport?.receiptUrl,
+      latestReport?.beforePhotoUrl ||
+      latestReport?.afterPhotoUrl ||
+      latestReport?.receiptUrl,
     );
-    const hasSubmitted = Boolean(submittedAt) || ['review', 'completed'].includes(status);
+    const hasSubmitted =
+      Boolean(submittedAt) || ['review', 'completed'].includes(status);
 
     const steps = [
       {
@@ -414,25 +481,36 @@ export class TaskService {
       steps,
       latestReport: latestReport
         ? {
-          id: latestReport.id ?? null,
-          notes: latestReport.notes ?? null,
-          beforePhotoUrl: latestReport.beforePhotoUrl ?? null,
-          afterPhotoUrl: latestReport.afterPhotoUrl ?? null,
-          receiptUrl: latestReport.receiptUrl ?? null,
-          reviewDecision: latestReport.reviewDecision ?? null,
-          reviewDescription: latestReport.reviewDescription ?? null,
-          reviewAttachmentUrl: latestReport.reviewAttachmentUrl ?? null,
-          submittedAt: latestReport.submittedAt ?? null,
-        }
+            id: latestReport.id ?? null,
+            notes: latestReport.notes ?? null,
+            beforePhotoUrl: latestReport.beforePhotoUrl ?? null,
+            afterPhotoUrl: latestReport.afterPhotoUrl ?? null,
+            receiptUrl: latestReport.receiptUrl ?? null,
+            reviewDecision: latestReport.reviewDecision ?? null,
+            reviewDescription: latestReport.reviewDescription ?? null,
+            reviewAttachmentUrl: latestReport.reviewAttachmentUrl ?? null,
+            submittedAt: latestReport.submittedAt ?? null,
+          }
         : null,
     };
   }
 
   private toTaskResponse(task: any) {
-    const { taskFloors, taskUnits, taskAssignees, subTasks, _count, project, floor, unit, ...rest } = task;
+    const {
+      taskFloors,
+      taskUnits,
+      taskAssignees,
+      subTasks,
+      _count,
+      project,
+      floor,
+      unit,
+      ...rest
+    } = task;
     const subTaskCount = _count?.subTasks ?? subTasks?.length ?? 0;
     const completedSubTaskCount =
-      subTasks?.filter((subTask: any) => subTask.status === 'completed').length ?? 0;
+      subTasks?.filter((subTask: any) => subTask.status === 'completed')
+        .length ?? 0;
     const assignedWorkerCount = this.countAssignedWorkers(task);
     const workflow = this.buildWorkflowSnapshot(task);
 
@@ -445,12 +523,17 @@ export class TaskService {
         priority: rest.priority,
         status: rest.status,
         allowSubTaskCreation: rest.allowSubTaskCreation,
-        approvalDecision: rest.approvalDecision === 'rejected' || (subTasks ?? []).some((st: any) => st.approvalDecision === 'rejected') ? 'rejected' : rest.approvalDecision,
+        approvalDecision:
+          rest.approvalDecision === 'rejected' ||
+          (subTasks ?? []).some((st: any) => st.approvalDecision === 'rejected')
+            ? 'rejected'
+            : rest.approvalDecision,
         approvalNotes: rest.approvalNotes,
         completionDecision: rest.completionDecision,
         completionNotes: rest.completionNotes,
         dueDate: rest.dueDate,
         estimatedHours: rest.estimatedHours,
+        price: rest.price ?? 0,
       },
       floors: this.buildTaskLocations(task),
       location: this.buildTaskLocationLabel(task),
@@ -472,6 +555,7 @@ export class TaskService {
         priority: subTask.priority,
         dueDate: subTask.dueDate,
         estimatedHours: subTask.estimatedHours,
+        price: subTask.price ?? 0,
         status: subTask.status,
         approvalDecision: subTask.approvalDecision,
         approvalNotes: subTask.approvalNotes,
@@ -516,8 +600,15 @@ export class TaskService {
       startDate: task.createdAt ?? null,
       dueDate: task.dueDate,
       estimatedHours: task.estimatedHours ?? null,
+      price: task.price ?? 0,
       status: task.status,
-      approvalDecision: task.approvalDecision === 'rejected' || (task.subTasks ?? []).some((st: any) => st.approvalDecision === 'rejected') ? 'rejected' : task.approvalDecision,
+      approvalDecision:
+        task.approvalDecision === 'rejected' ||
+        (task.subTasks ?? []).some(
+          (st: any) => st.approvalDecision === 'rejected',
+        )
+          ? 'rejected'
+          : task.approvalDecision,
       approvalNotes: task.approvalNotes ?? null,
       completionDecision: task.completionDecision ?? null,
       completionNotes: task.completionNotes ?? null,
@@ -525,7 +616,9 @@ export class TaskService {
       reportSummary: latestReport?.notes ?? null,
 
       // ── Location ──
-      project: task.project ? { id: task.project.id, name: task.project.name } : null,
+      project: task.project
+        ? { id: task.project.id, name: task.project.name }
+        : null,
       floors: this.buildTaskLocations(task),
       units: (task.taskUnits ?? []).map((item: any) => item.unit),
 
@@ -542,14 +635,17 @@ export class TaskService {
       workflow: this.buildWorkflowSnapshot(task),
 
       // ── Reports ──
-      reports: (task.reports ?? []).map((report: any) => this.toTaskReportResponse(report)),
+      reports: (task.reports ?? []).map((report: any) =>
+        this.toTaskReportResponse(report),
+      ),
       latestReport: this.toTaskReportResponse(latestReport),
       reportCount: (task.reports ?? []).length,
 
       // ── Sub-tasks (optional) ──
       subTaskCount: task.subTasks?.length ?? 0,
-      completedSubTaskCount:
-        (task.subTasks ?? []).filter((s: any) => s.status === 'completed').length,
+      completedSubTaskCount: (task.subTasks ?? []).filter(
+        (s: any) => s.status === 'completed',
+      ).length,
       subTasks: (task.subTasks ?? []).map((subTask: any) =>
         this.toSimpleSubTaskResponse(subTask),
       ),
@@ -588,6 +684,7 @@ export class TaskService {
       startDate: subTask.createdAt ?? null,
       dueDate: subTask.dueDate,
       estimatedHours: subTask.estimatedHours,
+      price: subTask.price ?? 0,
       status: subTask.status,
       approvalDecision: subTask.approvalDecision,
       approvalNotes: subTask.approvalNotes ?? null,
@@ -597,9 +694,9 @@ export class TaskService {
       reportSummary: latestReport?.notes ?? null,
       task: subTask.task
         ? {
-          ...subTask.task,
-          workflow: this.buildWorkflowSnapshot(subTask.task),
-        }
+            ...subTask.task,
+            workflow: this.buildWorkflowSnapshot(subTask.task),
+          }
         : null,
       units: (subTask.subTaskUnits ?? []).map((item: any) => item.unit),
       creator: subTask.creator ?? null,
@@ -615,11 +712,11 @@ export class TaskService {
     const taskProject = subTask.task?.project ?? null;
     const assignment = subTask.taskAssignee
       ? {
-        id: subTask.taskAssignee.id,
-        worker: subTask.taskAssignee.user ?? null,
-        unit: subTask.taskAssignee.unit ?? null,
-        assignedAt: subTask.taskAssignee.assignedAt ?? null,
-      }
+          id: subTask.taskAssignee.id,
+          worker: subTask.taskAssignee.user ?? null,
+          unit: subTask.taskAssignee.unit ?? null,
+          assignedAt: subTask.taskAssignee.assignedAt ?? null,
+        }
       : null;
 
     return {
@@ -632,6 +729,7 @@ export class TaskService {
       approvalNotes: subTask.approvalNotes ?? null,
       dueDate: subTask.dueDate,
       estimatedHours: subTask.estimatedHours,
+      price: subTask.price ?? 0,
       estimatedTimeLabel:
         subTask.estimatedHours !== null && subTask.estimatedHours !== undefined
           ? `${subTask.estimatedHours} hours`
@@ -643,9 +741,9 @@ export class TaskService {
       updatedAt: subTask.updatedAt,
       task: subTask.task
         ? {
-          ...subTask.task,
-          workflow: this.buildWorkflowSnapshot(subTask.task),
-        }
+            ...subTask.task,
+            workflow: this.buildWorkflowSnapshot(subTask.task),
+          }
         : null,
       project: taskProject,
       creator: subTask.creator ?? null,
@@ -658,15 +756,15 @@ export class TaskService {
       reportSummary: latestReport?.notes ?? null,
       report: latestReport
         ? {
-          id: latestReport.id,
-          notes: latestReport.notes ?? null,
-          reviewDecision: latestReport.reviewDecision ?? null,
-          reviewDescription: latestReport.reviewDescription ?? null,
-          reviewAttachmentUrl: latestReport.reviewAttachmentUrl ?? null,
-          reviewedBy: latestReport.reviewedBy ?? null,
-          reviewedAt: latestReport.reviewedAt ?? null,
-          submittedAt: latestReport.submittedAt ?? null,
-        }
+            id: latestReport.id,
+            notes: latestReport.notes ?? null,
+            reviewDecision: latestReport.reviewDecision ?? null,
+            reviewDescription: latestReport.reviewDescription ?? null,
+            reviewAttachmentUrl: latestReport.reviewAttachmentUrl ?? null,
+            reviewedBy: latestReport.reviewedBy ?? null,
+            reviewedAt: latestReport.reviewedAt ?? null,
+            submittedAt: latestReport.submittedAt ?? null,
+          }
         : null,
       review: {
         approvalDecision: subTask.approvalDecision,
@@ -731,7 +829,9 @@ export class TaskService {
           floor: { select: { id: true, name: true, floorNumber: true } },
           unit: { select: { id: true, name: true } },
           taskFloors: {
-            include: { floor: { select: { id: true, name: true, floorNumber: true } } },
+            include: {
+              floor: { select: { id: true, name: true, floorNumber: true } },
+            },
           },
           taskUnits: {
             include: {
@@ -740,14 +840,23 @@ export class TaskService {
                   id: true,
                   name: true,
                   floorId: true,
-                  floor: { select: { id: true, name: true, floorNumber: true } },
+                  floor: {
+                    select: { id: true, name: true, floorNumber: true },
+                  },
                 },
               },
             },
           },
           taskAssignees: {
             include: {
-              user: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+              user: {
+                select: {
+                  id: true,
+                  fullName: true,
+                  avatarUrl: true,
+                  role: true,
+                },
+              },
               unit: { select: { id: true, name: true } },
             },
           },
@@ -757,7 +866,14 @@ export class TaskService {
               unit: { select: { id: true, name: true } },
               taskAssignee: {
                 include: {
-                  user: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+                  user: {
+                    select: {
+                      id: true,
+                      fullName: true,
+                      avatarUrl: true,
+                      role: true,
+                    },
+                  },
                   unit: { select: { id: true, name: true } },
                 },
               },
@@ -794,17 +910,23 @@ export class TaskService {
   }
 
   async createTask(dto: CreateTaskDto, userId: string, userRole: string) {
-    const canCreateAsAdmin = userRole === UserRole.admin || userRole === UserRole.super_admin;
+    const canCreateAsAdmin =
+      userRole === UserRole.admin || userRole === UserRole.super_admin;
     const canCreateAsManager = userRole === UserRole.manager;
     const canCreateAsWorker = userRole === UserRole.worker;
 
     if (!canCreateAsAdmin && !canCreateAsManager && !canCreateAsWorker) {
       throw new ForbiddenException('You are not allowed to create tasks');
     }
+    this.assertCanWriteTaskPrice(userRole, dto.price);
 
     if (userRole === UserRole.manager || userRole === UserRole.worker) {
       const member = await this.prisma.projectMember.findFirst({
-        where: { projectId: dto.projectId, userId, role: userRole === UserRole.manager ? 'manager' : 'worker' },
+        where: {
+          projectId: dto.projectId,
+          userId,
+          role: userRole === UserRole.manager ? 'manager' : 'worker',
+        },
       });
       if (!member) {
         throw new ForbiddenException('You are not assigned to this project');
@@ -819,15 +941,21 @@ export class TaskService {
     }
 
     const nestedFloorIds = dto.floors?.map((item) => item.floorId) ?? [];
-    const nestedUnitIds = dto.floors?.flatMap((item) => item.unitIds ?? []) ?? [];
-    const floorIds = Array.from(new Set([...(dto.floorIds ?? []), ...nestedFloorIds]));
-    const unitIds = Array.from(new Set([...(dto.unitIds ?? []), ...nestedUnitIds]));
+    const nestedUnitIds =
+      dto.floors?.flatMap((item) => item.unitIds ?? []) ?? [];
+    const floorIds = Array.from(
+      new Set([...(dto.floorIds ?? []), ...nestedFloorIds]),
+    );
+    const unitIds = Array.from(
+      new Set([...(dto.unitIds ?? []), ...nestedUnitIds]),
+    );
 
     if (dto.floorId) {
       const floor = await this.prisma.floor.findFirst({
         where: { id: dto.floorId, projectId: dto.projectId },
       });
-      if (!floor) throw new NotFoundException('Floor not found in this project');
+      if (!floor)
+        throw new NotFoundException('Floor not found in this project');
     }
 
     if (dto.unitId) {
@@ -843,7 +971,9 @@ export class TaskService {
         select: { id: true },
       });
       if (floors.length !== floorIds.length) {
-        throw new NotFoundException('One or more floors not found in this project');
+        throw new NotFoundException(
+          'One or more floors not found in this project',
+        );
       }
     }
 
@@ -853,18 +983,23 @@ export class TaskService {
         select: { id: true },
       });
       if (units.length !== unitIds.length) {
-        throw new NotFoundException('One or more units not found in this project');
+        throw new NotFoundException(
+          'One or more units not found in this project',
+        );
       }
     }
 
     const approvalDecision = canCreateAsWorker ? 'pending' : 'approved';
     const initialStatus = canCreateAsWorker ? 'in_active' : 'pending';
+    const price = this.canManageTaskPrice(userRole)
+      ? (this.normalizePrice(dto.price) ?? 0)
+      : 0;
 
     const task = await this.prisma.task.create({
       data: {
         projectId: dto.projectId,
-        floorId: dto.floors?.length ? null : dto.floorId ?? null,
-        unitId: dto.floors?.length ? null : dto.unitId ?? null,
+        floorId: dto.floors?.length ? null : (dto.floorId ?? null),
+        unitId: dto.floors?.length ? null : (dto.unitId ?? null),
         assignedTo: canCreateAsWorker ? userId : null,
         createdBy: userId,
         title: dto.title,
@@ -877,11 +1012,16 @@ export class TaskService {
         allowSubTaskCreation: dto.allowSubTaskCreation ?? false,
         dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
         estimatedHours: dto.estimatedHours ?? null,
+        price,
       } as any,
     });
 
     const workerAssignmentUnitIds = canCreateAsWorker
-      ? (unitIds.length ? unitIds : dto.unitId ? [dto.unitId] : [null])
+      ? unitIds.length
+        ? unitIds
+        : dto.unitId
+          ? [dto.unitId]
+          : [null]
       : [];
     let workerAssignmentByUnit = new Map<string, string>();
 
@@ -901,7 +1041,10 @@ export class TaskService {
       });
 
       workerAssignmentByUnit = new Map(
-        workerAssignments.map((assignment) => [assignment.unitId ?? 'main', assignment.id]),
+        workerAssignments.map((assignment) => [
+          assignment.unitId ?? 'main',
+          assignment.id,
+        ]),
       );
     }
 
@@ -935,11 +1078,14 @@ export class TaskService {
               priority: dto.priority ?? TaskPriority.medium,
               dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
               estimatedHours: dto.estimatedHours ?? null,
+              price,
               status: initialStatus,
               taskAssigneeId: workerAssignmentByUnit.get(unitId) ?? null,
               approvalDecision,
-              approvalReviewedBy: approvalDecision === 'approved' ? userId : null,
-              approvalReviewedAt: approvalDecision === 'approved' ? new Date() : null,
+              approvalReviewedBy:
+                approvalDecision === 'approved' ? userId : null,
+              approvalReviewedAt:
+                approvalDecision === 'approved' ? new Date() : null,
             } as any,
           });
           await this.prisma.subTaskUnit.create({
@@ -964,11 +1110,13 @@ export class TaskService {
             priority: dto.priority ?? TaskPriority.medium,
             dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
             estimatedHours: dto.estimatedHours ?? null,
+            price,
             status: initialStatus,
             taskAssigneeId: workerAssignmentByUnit.get(dto.unitId) ?? null,
             approvalDecision,
             approvalReviewedBy: approvalDecision === 'approved' ? userId : null,
-            approvalReviewedAt: approvalDecision === 'approved' ? new Date() : null,
+            approvalReviewedAt:
+              approvalDecision === 'approved' ? new Date() : null,
           } as any,
         });
         await this.prisma.subTaskUnit.create({
@@ -984,7 +1132,9 @@ export class TaskService {
         floor: { select: { id: true, name: true, floorNumber: true } },
         unit: { select: { id: true, name: true } },
         taskFloors: {
-          include: { floor: { select: { id: true, name: true, floorNumber: true } } },
+          include: {
+            floor: { select: { id: true, name: true, floorNumber: true } },
+          },
         },
         taskUnits: {
           include: {
@@ -1000,7 +1150,9 @@ export class TaskService {
         },
         taskAssignees: {
           include: {
-            user: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+            user: {
+              select: { id: true, fullName: true, avatarUrl: true, role: true },
+            },
             unit: { select: { id: true, name: true } },
           },
         },
@@ -1046,20 +1198,32 @@ export class TaskService {
       where: { id: taskId },
       include: {
         project: {
-          select: { id: true, name: true, company: { select: { ownerId: true } } },
+          select: {
+            id: true,
+            name: true,
+            company: { select: { ownerId: true } },
+          },
         },
         floor: { select: { id: true, name: true, floorNumber: true } },
         unit: { select: { id: true, name: true } },
-        creator: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
-        assignee: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+        creator: {
+          select: { id: true, fullName: true, avatarUrl: true, role: true },
+        },
+        assignee: {
+          select: { id: true, fullName: true, avatarUrl: true, role: true },
+        },
         taskAssignees: {
           include: {
-            user: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+            user: {
+              select: { id: true, fullName: true, avatarUrl: true, role: true },
+            },
             unit: { select: { id: true, name: true } },
           },
         },
         taskFloors: {
-          include: { floor: { select: { id: true, name: true, floorNumber: true } } },
+          include: {
+            floor: { select: { id: true, name: true, floorNumber: true } },
+          },
         },
         taskUnits: {
           include: {
@@ -1103,22 +1267,44 @@ export class TaskService {
                 project: { select: { id: true, name: true } },
               },
             },
-            creator: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+            creator: {
+              select: { id: true, fullName: true, avatarUrl: true, role: true },
+            },
             unit: { select: { id: true, name: true } },
             taskAssignee: {
               include: {
-                user: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+                user: {
+                  select: {
+                    id: true,
+                    fullName: true,
+                    avatarUrl: true,
+                    role: true,
+                  },
+                },
                 unit: { select: { id: true, name: true } },
               },
             },
             subTaskUnits: {
               include: {
-                unit: { select: { id: true, name: true, floorId: true, floor: { select: { id: true, name: true, floorNumber: true } } } },
+                unit: {
+                  select: {
+                    id: true,
+                    name: true,
+                    floorId: true,
+                    floor: {
+                      select: { id: true, name: true, floorNumber: true },
+                    },
+                  },
+                },
               },
             },
             reports: {
               orderBy: { submittedAt: 'desc' as const },
-              include: { worker: { select: { id: true, fullName: true, avatarUrl: true } } },
+              include: {
+                worker: {
+                  select: { id: true, fullName: true, avatarUrl: true },
+                },
+              },
             },
             inventories: {
               include: {
@@ -1158,10 +1344,7 @@ export class TaskService {
 
     const expenses = await this.prisma.expense.findMany({
       where: {
-        OR: [
-          { taskId: task.id },
-          { projectId: task.projectId, taskId: null },
-        ],
+        OR: [{ taskId: task.id }, { projectId: task.projectId, taskId: null }],
       },
       select: {
         id: true,
@@ -1178,31 +1361,37 @@ export class TaskService {
       orderBy: { createdAt: 'desc' },
     });
 
-    const reimbursementExpenses = await this.prisma.reimbursementExpense.findMany({
-      where: {
-        taskId: task.id,
-        subTaskId: null,
-      },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        createdBy: { select: { id: true, fullName: true, avatarUrl: true } },
-      },
-    });
+    const reimbursementExpenses =
+      await this.prisma.reimbursementExpense.findMany({
+        where: {
+          taskId: task.id,
+          subTaskId: null,
+        },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          createdBy: { select: { id: true, fullName: true, avatarUrl: true } },
+        },
+      });
 
-    const normalizedReimbursementExpenses = reimbursementExpenses.map((expense) => ({
-      id: expense.id,
-      description: expense.title,
-      category: expense.category,
-      amount: Number(expense.totalAmount ?? expense.subtotal ?? 0),
-      status: expense.status,
-      date: expense.expenseDate,
-      receiptUrl: expense.receiptUrl,
-      projectId: expense.projectId,
-      taskId: expense.taskId,
-      reporter: expense.createdBy,
-    }));
+    const normalizedReimbursementExpenses = reimbursementExpenses.map(
+      (expense) => ({
+        id: expense.id,
+        description: expense.title,
+        category: expense.category,
+        amount: Number(expense.totalAmount ?? expense.subtotal ?? 0),
+        status: expense.status,
+        date: expense.expenseDate,
+        receiptUrl: expense.receiptUrl,
+        projectId: expense.projectId,
+        taskId: expense.taskId,
+        reporter: expense.createdBy,
+      }),
+    );
 
-    return this.toTaskDetailResponse(task, [...expenses, ...normalizedReimbursementExpenses]);
+    return this.toTaskDetailResponse(task, [
+      ...expenses,
+      ...normalizedReimbursementExpenses,
+    ]);
   }
 
   async getTaskLocations(taskId: string, userId: string, userRole: string) {
@@ -1231,7 +1420,10 @@ export class TaskService {
 
     if (!task) throw new NotFoundException('Task not found');
 
-    const unitsByFloorId = new Map<string, Array<{ id: string; name: string }>>();
+    const unitsByFloorId = new Map<
+      string,
+      Array<{ id: string; name: string }>
+    >();
 
     for (const entry of task.taskUnits) {
       if (!entry.unit?.floorId) continue;
@@ -1269,7 +1461,14 @@ export class TaskService {
       include: {
         subTaskUnits: {
           include: {
-            unit: { select: { id: true, name: true, floorId: true, floor: { select: { id: true, name: true, floorNumber: true } } } },
+            unit: {
+              select: {
+                id: true,
+                name: true,
+                floorId: true,
+                floor: { select: { id: true, name: true, floorNumber: true } },
+              },
+            },
           },
         },
         task: {
@@ -1301,7 +1500,9 @@ export class TaskService {
         },
         taskAssignee: {
           include: {
-            user: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+            user: {
+              select: { id: true, fullName: true, avatarUrl: true, role: true },
+            },
             unit: { select: { id: true, name: true } },
           },
         },
@@ -1324,7 +1525,9 @@ export class TaskService {
     });
 
     return {
-      data: subTasks.map((subTask: any) => this.toSimpleSubTaskResponse(subTask)),
+      data: subTasks.map((subTask: any) =>
+        this.toSimpleSubTaskResponse(subTask),
+      ),
     };
   }
 
@@ -1376,13 +1579,24 @@ export class TaskService {
         },
         subTaskUnits: {
           include: {
-            unit: { select: { id: true, name: true, floorId: true, floor: { select: { id: true, name: true, floorNumber: true } } } },
+            unit: {
+              select: {
+                id: true,
+                name: true,
+                floorId: true,
+                floor: { select: { id: true, name: true, floorNumber: true } },
+              },
+            },
           },
         },
-        creator: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+        creator: {
+          select: { id: true, fullName: true, avatarUrl: true, role: true },
+        },
         taskAssignee: {
           include: {
-            user: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+            user: {
+              select: { id: true, fullName: true, avatarUrl: true, role: true },
+            },
             unit: { select: { id: true, name: true } },
           },
         },
@@ -1507,7 +1721,16 @@ export class TaskService {
           unit: { select: { id: true, name: true } },
           subTaskUnits: {
             include: {
-              unit: { select: { id: true, name: true, floorId: true, floor: { select: { id: true, name: true, floorNumber: true } } } },
+              unit: {
+                select: {
+                  id: true,
+                  name: true,
+                  floorId: true,
+                  floor: {
+                    select: { id: true, name: true, floorNumber: true },
+                  },
+                },
+              },
             },
           },
         },
@@ -1530,9 +1753,9 @@ export class TaskService {
         approvalDecision: subTask.approvalDecision,
         task: subTask.task
           ? {
-            ...subTask.task,
-            workflow: this.buildWorkflowSnapshot(subTask.task),
-          }
+              ...subTask.task,
+              workflow: this.buildWorkflowSnapshot(subTask.task),
+            }
           : null,
         units: (subTask.subTaskUnits ?? []).map((item: any) => item.unit),
         workflow: this.buildWorkflowSnapshot(subTask),
@@ -1645,13 +1868,31 @@ export class TaskService {
           unit: { select: { id: true, name: true } },
           subTaskUnits: {
             include: {
-              unit: { select: { id: true, name: true, floorId: true, floor: { select: { id: true, name: true, floorNumber: true } } } },
+              unit: {
+                select: {
+                  id: true,
+                  name: true,
+                  floorId: true,
+                  floor: {
+                    select: { id: true, name: true, floorNumber: true },
+                  },
+                },
+              },
             },
           },
-          creator: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+          creator: {
+            select: { id: true, fullName: true, avatarUrl: true, role: true },
+          },
           taskAssignee: {
             include: {
-              user: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+              user: {
+                select: {
+                  id: true,
+                  fullName: true,
+                  avatarUrl: true,
+                  role: true,
+                },
+              },
               unit: { select: { id: true, name: true } },
             },
           },
@@ -1703,7 +1944,11 @@ export class TaskService {
     };
   }
 
-  async getAdminSubTaskDetails(userId: string, userRole: string, subTaskId: string) {
+  async getAdminSubTaskDetails(
+    userId: string,
+    userRole: string,
+    subTaskId: string,
+  ) {
     const projectIds = await this.getProjectIdsForUser(userId, userRole);
 
     const subTask = await this.prisma.subTask.findFirst({
@@ -1742,13 +1987,24 @@ export class TaskService {
         },
         subTaskUnits: {
           include: {
-            unit: { select: { id: true, name: true, floorId: true, floor: { select: { id: true, name: true, floorNumber: true } } } },
+            unit: {
+              select: {
+                id: true,
+                name: true,
+                floorId: true,
+                floor: { select: { id: true, name: true, floorNumber: true } },
+              },
+            },
           },
         },
-        creator: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+        creator: {
+          select: { id: true, fullName: true, avatarUrl: true, role: true },
+        },
         taskAssignee: {
           include: {
-            user: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+            user: {
+              select: { id: true, fullName: true, avatarUrl: true, role: true },
+            },
             unit: { select: { id: true, name: true } },
           },
         },
@@ -1771,7 +2027,9 @@ export class TaskService {
         },
         inventories: {
           include: {
-            inventory: { select: { id: true, name: true, unit: true, category: true } },
+            inventory: {
+              select: { id: true, name: true, unit: true, category: true },
+            },
           },
         },
       },
@@ -1798,29 +2056,35 @@ export class TaskService {
       },
     });
 
-    const reimbursementExpenses = await this.prisma.reimbursementExpense.findMany({
-      where: { subTaskId: subTask.id },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        createdBy: { select: { id: true, fullName: true, avatarUrl: true } },
-      },
-    });
+    const reimbursementExpenses =
+      await this.prisma.reimbursementExpense.findMany({
+        where: { subTaskId: subTask.id },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          createdBy: { select: { id: true, fullName: true, avatarUrl: true } },
+        },
+      });
 
-    const normalizedReimbursementExpenses = reimbursementExpenses.map((expense) => ({
-      id: expense.id,
-      description: expense.title,
-      category: expense.category,
-      amount: Number(expense.totalAmount ?? expense.subtotal ?? 0),
-      status: expense.status,
-      date: expense.expenseDate,
-      receiptUrl: expense.receiptUrl,
-      reviewedBy: null,
-      reviewedAt: null,
-      reviewNotes: expense.notes,
-      reporter: expense.createdBy,
-    }));
+    const normalizedReimbursementExpenses = reimbursementExpenses.map(
+      (expense) => ({
+        id: expense.id,
+        description: expense.title,
+        category: expense.category,
+        amount: Number(expense.totalAmount ?? expense.subtotal ?? 0),
+        status: expense.status,
+        date: expense.expenseDate,
+        receiptUrl: expense.receiptUrl,
+        reviewedBy: null,
+        reviewedAt: null,
+        reviewNotes: expense.notes,
+        reporter: expense.createdBy,
+      }),
+    );
 
-    return this.toAdminSubTaskDetailResponse(subTask, [...taskExpenses, ...normalizedReimbursementExpenses]);
+    return this.toAdminSubTaskDetailResponse(subTask, [
+      ...taskExpenses,
+      ...normalizedReimbursementExpenses,
+    ]);
   }
 
   async reviewSubTaskApproval(
@@ -1840,10 +2104,16 @@ export class TaskService {
 
     if (!subTask) throw new NotFoundException('Sub task not found');
 
-    return this.reviewSubTaskCreation(subTask.taskId, subTaskId, {
-      ...dto,
-      reviewAttachmentUrl: file?.filename ?? dto.reviewAttachmentUrl,
-    }, userId, userRole);
+    return this.reviewSubTaskCreation(
+      subTask.taskId,
+      subTaskId,
+      {
+        ...dto,
+        reviewAttachmentUrl: file?.filename ?? dto.reviewAttachmentUrl,
+      },
+      userId,
+      userRole,
+    );
   }
 
   async reviewSubTaskReport(
@@ -1891,19 +2161,33 @@ export class TaskService {
   ) {
     await this.verifyTaskAccess(taskId, userId, userRole);
 
-    const { floorIds, unitIds, expenseDescription, expenseAmount, ...taskUpdates } =
-      dto as UpdateTaskDto & {
-        floorIds?: string[];
-        unitIds?: string[];
-        expenseDescription?: string;
-        expenseAmount?: number | string;
-      };
+    const {
+      floorIds,
+      unitIds,
+      expenseDescription,
+      expenseAmount,
+      price,
+      ...taskUpdates
+    } = dto as UpdateTaskDto & {
+      floorIds?: string[];
+      unitIds?: string[];
+      expenseDescription?: string;
+      expenseAmount?: number | string;
+      price?: number | string;
+    };
+    this.assertCanWriteTaskPrice(userRole, price);
+    const normalizedPrice = this.canManageTaskPrice(userRole)
+      ? this.normalizePrice(price)
+      : undefined;
 
     const updatedTask = await this.prisma.task.update({
       where: { id: taskId },
       data: {
         ...taskUpdates,
-        dueDate: taskUpdates.dueDate ? new Date(taskUpdates.dueDate) : undefined,
+        ...(normalizedPrice !== undefined ? { price: normalizedPrice } : {}),
+        dueDate: taskUpdates.dueDate
+          ? new Date(taskUpdates.dueDate)
+          : undefined,
       },
     });
 
@@ -1915,7 +2199,9 @@ export class TaskService {
           select: { id: true },
         });
         if (floors.length !== floorIds.length) {
-          throw new NotFoundException('One or more floors not found in this project');
+          throw new NotFoundException(
+            'One or more floors not found in this project',
+          );
         }
         await this.prisma.taskFloor.createMany({
           data: floorIds.map((floorId) => ({ taskId, floorId })),
@@ -1928,11 +2214,16 @@ export class TaskService {
       await this.prisma.taskUnit.deleteMany({ where: { taskId } });
       if (unitIds.length > 0) {
         const units = await this.prisma.unit.findMany({
-          where: { id: { in: unitIds }, floor: { projectId: updatedTask.projectId } },
+          where: {
+            id: { in: unitIds },
+            floor: { projectId: updatedTask.projectId },
+          },
           select: { id: true },
         });
         if (units.length !== unitIds.length) {
-          throw new NotFoundException('One or more units not found in this project');
+          throw new NotFoundException(
+            'One or more units not found in this project',
+          );
         }
         await this.prisma.taskUnit.createMany({
           data: unitIds.map((unitId) => ({ taskId, unitId })),
@@ -1967,11 +2258,18 @@ export class TaskService {
     return updatedTask;
   }
 
-  async updateTaskStatus(taskId: string, dto: UpdateTaskStatusDto, userId: string, userRole: string) {
+  async updateTaskStatus(
+    taskId: string,
+    dto: UpdateTaskStatusDto,
+    userId: string,
+    userRole: string,
+  ) {
     const task = await this.verifyTaskAccess(taskId, userId, userRole);
 
     if (task.approvalDecision !== 'approved' && dto.status !== 'cancelled') {
-      throw new BadRequestException('Approved task only can move to execution flow');
+      throw new BadRequestException(
+        'Approved task only can move to execution flow',
+      );
     }
 
     return this.prisma.task.update({
@@ -1995,6 +2293,10 @@ export class TaskService {
     }
 
     await this.verifyTaskAccess(subTask.taskId, userId, userRole);
+    this.assertCanWriteTaskPrice(userRole, dto.price);
+    const normalizedPrice = this.canManageTaskPrice(userRole)
+      ? this.normalizePrice(dto.price)
+      : undefined;
 
     return this.prisma.subTask.update({
       where: { id: subTaskId },
@@ -2003,6 +2305,7 @@ export class TaskService {
         description: dto.description,
         priority: dto.priority as any,
         dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
+        ...(normalizedPrice !== undefined ? { price: normalizedPrice } : {}),
       },
       include: {
         task: { select: { id: true, title: true } },
@@ -2011,10 +2314,21 @@ export class TaskService {
     });
   }
 
-  async reviewTaskApproval(taskId: string, dto: ReviewTaskDto, userId: string, userRole: string) {
+  async reviewTaskApproval(
+    taskId: string,
+    dto: ReviewTaskDto,
+    userId: string,
+    userRole: string,
+  ) {
     await this.verifyTaskAccess(taskId, userId, userRole);
-    if (userRole !== UserRole.admin && userRole !== UserRole.super_admin && userRole !== UserRole.manager) {
-      throw new ForbiddenException('Only admin or manager can approve or reject the task');
+    if (
+      userRole !== UserRole.admin &&
+      userRole !== UserRole.super_admin &&
+      userRole !== UserRole.manager
+    ) {
+      throw new ForbiddenException(
+        'Only admin or manager can approve or reject the task',
+      );
     }
 
     if (dto.reviewDecision === 'approved') {
@@ -2131,7 +2445,9 @@ export class TaskService {
 
     if (search) {
       const needle = search.toLowerCase();
-      workers = workers.filter((worker) => worker.fullName.toLowerCase().includes(needle));
+      workers = workers.filter((worker) =>
+        worker.fullName.toLowerCase().includes(needle),
+      );
     }
 
     return {
@@ -2143,18 +2459,32 @@ export class TaskService {
     };
   }
 
-  async assignWorker(taskId: string, dto: AssignTaskDto, userId: string, userRole: string) {
-    if (userRole !== UserRole.admin && userRole !== UserRole.manager && userRole !== UserRole.super_admin) {
+  async assignWorker(
+    taskId: string,
+    dto: AssignTaskDto,
+    userId: string,
+    userRole: string,
+  ) {
+    if (
+      userRole !== UserRole.admin &&
+      userRole !== UserRole.manager &&
+      userRole !== UserRole.super_admin
+    ) {
       throw new ForbiddenException('Only admin or manager can assign workers');
     }
 
     const task = await this.verifyTaskAccess(taskId, userId, userRole);
     if (task.approvalDecision !== 'approved') {
-      throw new BadRequestException('Task must be approved before assigning workers');
+      throw new BadRequestException(
+        'Task must be approved before assigning workers',
+      );
     }
 
     const workerIds = Array.from(
-      new Set([...(dto.workerIds ?? []), ...(dto.workerId ? [dto.workerId] : [])]),
+      new Set([
+        ...(dto.workerIds ?? []),
+        ...(dto.workerId ? [dto.workerId] : []),
+      ]),
     );
 
     if (workerIds.length > 0) {
@@ -2168,7 +2498,9 @@ export class TaskService {
       });
 
       if (workers.length !== workerIds.length) {
-        throw new BadRequestException('One or more workers are not members of this project');
+        throw new BadRequestException(
+          'One or more workers are not members of this project',
+        );
       }
     }
     await this.prisma.$transaction([
@@ -2228,7 +2560,9 @@ export class TaskService {
         project: { select: { id: true, name: true } },
         taskAssignees: {
           include: {
-            user: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+            user: {
+              select: { id: true, fullName: true, avatarUrl: true, role: true },
+            },
             unit: { select: { id: true, name: true } },
           },
         },
@@ -2248,7 +2582,9 @@ export class TaskService {
           },
         },
         taskFloors: {
-          include: { floor: { select: { id: true, name: true, floorNumber: true } } },
+          include: {
+            floor: { select: { id: true, name: true, floorNumber: true } },
+          },
         },
         taskUnits: {
           include: {
@@ -2296,21 +2632,37 @@ export class TaskService {
     return this.toTaskResponse(updated);
   }
 
-  async createSubTask(taskId: string, dto: CreateSubTaskDto, userId: string, userRole: string) {
+  async createSubTask(
+    taskId: string,
+    dto: CreateSubTaskDto,
+    userId: string,
+    userRole: string,
+  ) {
     const task = await this.verifyTaskAccess(taskId, userId, userRole);
     if (task.approvalDecision !== 'approved') {
-      throw new BadRequestException('Task must be approved before creating subtasks');
+      throw new BadRequestException(
+        'Task must be approved before creating subtasks',
+      );
     }
     if (!(task as any).allowSubTaskCreation) {
-      throw new BadRequestException('Subtask creation is disabled for this main task');
+      throw new BadRequestException(
+        'Subtask creation is disabled for this main task',
+      );
     }
+    this.assertCanWriteTaskPrice(userRole, dto.price);
 
-    const unitIds = Array.from(new Set([...(dto.unitIds ?? []), ...(dto.unitId ? [dto.unitId] : [])]));
+    const unitIds = Array.from(
+      new Set([...(dto.unitIds ?? []), ...(dto.unitId ? [dto.unitId] : [])]),
+    );
     if (unitIds.length === 0) {
       throw new BadRequestException('unitId or unitIds is required');
     }
 
-    const approvalDecision = userRole === UserRole.worker ? 'pending' : 'approved';
+    const approvalDecision =
+      userRole === UserRole.worker ? 'pending' : 'approved';
+    const price = this.canManageTaskPrice(userRole)
+      ? (this.normalizePrice(dto.price) ?? 0)
+      : 0;
     const taskUnits = await this.prisma.taskUnit.findMany({
       where: { taskId, unitId: { in: unitIds } },
       include: {
@@ -2333,7 +2685,9 @@ export class TaskService {
         taskAssignee = await this.prisma.taskAssignee.findFirst({
           where: { taskId },
           include: {
-            user: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+            user: {
+              select: { id: true, fullName: true, avatarUrl: true, role: true },
+            },
             unit: { select: { id: true, name: true } },
           },
           orderBy: { assignedAt: 'asc' },
@@ -2351,17 +2705,28 @@ export class TaskService {
           priority: dto.priority ?? 'medium',
           dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
           estimatedHours: dto.estimatedHours ?? null,
+          price,
           status: 'pending',
           approvalDecision,
           approvalReviewedBy: approvalDecision === 'approved' ? userId : null,
-          approvalReviewedAt: approvalDecision === 'approved' ? new Date() : null,
+          approvalReviewedAt:
+            approvalDecision === 'approved' ? new Date() : null,
         },
         include: {
           unit: { select: { id: true, name: true } },
-          task: { select: { id: true, title: true, priority: true, dueDate: true } },
+          task: {
+            select: { id: true, title: true, priority: true, dueDate: true },
+          },
           taskAssignee: {
             include: {
-              user: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+              user: {
+                select: {
+                  id: true,
+                  fullName: true,
+                  avatarUrl: true,
+                  role: true,
+                },
+              },
               unit: { select: { id: true, name: true } },
             },
           },
@@ -2397,7 +2762,9 @@ export class TaskService {
           },
         },
         taskFloors: {
-          include: { floor: { select: { id: true, name: true, floorNumber: true } } },
+          include: {
+            floor: { select: { id: true, name: true, floorNumber: true } },
+          },
         },
         taskUnits: {
           include: {
@@ -2417,12 +2784,28 @@ export class TaskService {
             unit: { select: { id: true, name: true } },
             subTaskUnits: {
               include: {
-                unit: { select: { id: true, name: true, floorId: true, floor: { select: { id: true, name: true, floorNumber: true } } } },
+                unit: {
+                  select: {
+                    id: true,
+                    name: true,
+                    floorId: true,
+                    floor: {
+                      select: { id: true, name: true, floorNumber: true },
+                    },
+                  },
+                },
               },
             },
             taskAssignee: {
               include: {
-                user: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+                user: {
+                  select: {
+                    id: true,
+                    fullName: true,
+                    avatarUrl: true,
+                    role: true,
+                  },
+                },
                 unit: { select: { id: true, name: true } },
               },
             },
@@ -2448,12 +2831,20 @@ export class TaskService {
 
     await this.notifyProjectRecipients(
       task.projectId,
-      [UserRole.admin, UserRole.manager, UserRole.worker],
+      approvalDecision === 'pending'
+        ? [UserRole.admin, UserRole.manager]
+        : [UserRole.admin, UserRole.manager, UserRole.worker],
       {
-        title: 'Subtask Created',
-        body: `New subtask created for task: ${task.title}`,
+        title:
+          approvalDecision === 'pending'
+            ? 'Subtask Approval Requested'
+            : 'Subtask Created',
+        body:
+          approvalDecision === 'pending'
+            ? `New subtask request needs review: ${dto.title}`
+            : `New subtask created for task: ${task.title}`,
         type: 'task',
-        refId: taskId,
+        refId: createdSubTasks[0]?.id ?? taskId,
         refType: 'sub_task',
       },
       [userId],
@@ -2473,8 +2864,14 @@ export class TaskService {
     userRole: string,
   ) {
     await this.verifyTaskAccess(taskId, userId, userRole);
-    if (userRole !== UserRole.admin && userRole !== UserRole.manager && userRole !== UserRole.super_admin) {
-      throw new ForbiddenException('Only admin or manager can review sub tasks');
+    if (
+      userRole !== UserRole.admin &&
+      userRole !== UserRole.manager &&
+      userRole !== UserRole.super_admin
+    ) {
+      throw new ForbiddenException(
+        'Only admin or manager can review sub tasks',
+      );
     }
 
     const subTask = await this.prisma.subTask.findFirst({
@@ -2488,7 +2885,13 @@ export class TaskService {
     }
 
     const reviewText = dto.note ?? dto.reviewDescription ?? null;
-    const nextStatus = dto.reviewDecision === 'approved' ? 'approved' : 'rejected';
+    const nextStatus =
+      dto.reviewDecision === 'approved' ? 'approved' : 'rejected';
+    this.assertCanWriteTaskPrice(userRole, dto.price);
+    const normalizedPrice =
+      dto.reviewDecision === 'approved' && this.canManageTaskPrice(userRole)
+        ? this.normalizePrice(dto.price)
+        : undefined;
 
     await this.prisma.subTask.update({
       where: { id: subTaskId },
@@ -2499,13 +2902,17 @@ export class TaskService {
         approvalNotes: reviewText,
         approvalAttachmentUrl: dto.reviewAttachmentUrl ?? null,
         status: dto.reviewDecision === 'approved' ? 'pending' : 'in_active',
+        ...(normalizedPrice !== undefined ? { price: normalizedPrice } : {}),
       },
     });
 
     if (subTask.taskAssignee?.userId) {
       await this.notificationsService.send({
         userId: subTask.taskAssignee.userId,
-        title: dto.reviewDecision === 'approved' ? 'Subtask Approved' : 'Subtask Rejected',
+        title:
+          dto.reviewDecision === 'approved'
+            ? 'Subtask Approved'
+            : 'Subtask Rejected',
         body: reviewText ?? '',
         type: 'task',
         refId: subTaskId,
@@ -2522,13 +2929,16 @@ export class TaskService {
       parentTask?.projectId ?? taskId,
       [UserRole.admin, UserRole.manager],
       {
-        title: dto.reviewDecision === 'approved' ? 'Subtask Approved' : 'Subtask Rejected',
+        title:
+          dto.reviewDecision === 'approved'
+            ? 'Subtask Approved'
+            : 'Subtask Rejected',
         body: reviewText ?? '',
         type: 'task',
         refId: subTaskId,
         refType: 'sub_task',
       },
-      [userId, subTask.taskAssignee?.userId].filter(Boolean) as string[],
+      [userId, subTask.taskAssignee?.userId].filter(Boolean),
     );
 
     return { message: `Sub task ${dto.reviewDecision}` };
@@ -2570,7 +2980,8 @@ export class TaskService {
     });
 
     const expenseAmount =
-      typeof dto.expenseAmount === 'number' && Number.isFinite(dto.expenseAmount)
+      typeof dto.expenseAmount === 'number' &&
+      Number.isFinite(dto.expenseAmount)
         ? dto.expenseAmount
         : null;
 
@@ -2637,7 +3048,10 @@ export class TaskService {
 
     await this.notificationsService.send({
       userId: report.workerId,
-      title: dto.reviewDecision === 'approved' ? 'Subtask Report Approved' : 'Subtask Report Rejected',
+      title:
+        dto.reviewDecision === 'approved'
+          ? 'Subtask Report Approved'
+          : 'Subtask Report Rejected',
       body: reviewText ?? '',
       type: 'report',
       refId: reportId,
@@ -2663,7 +3077,8 @@ export class TaskService {
         data: {
           // approve → completed, reject → revision (worker আবার resubmit করবে)
           status: dto.reviewDecision === 'approved' ? 'completed' : 'revision',
-          submittedAt: dto.reviewDecision === 'approved' ? new Date() : undefined,
+          submittedAt:
+            dto.reviewDecision === 'approved' ? new Date() : undefined,
           completedAt: dto.reviewDecision === 'approved' ? new Date() : null,
           approvalDecision: dto.reviewDecision as any,
         },
@@ -2679,7 +3094,8 @@ export class TaskService {
           completionReviewedBy: userId,
           completionReviewedAt: new Date(),
           completionNotes: reviewText,
-          status: dto.reviewDecision === 'approved' ? 'completed' : 'in_progress',
+          status:
+            dto.reviewDecision === 'approved' ? 'completed' : 'in_progress',
         },
       });
     }
@@ -2687,7 +3103,12 @@ export class TaskService {
     return { message: `Task report ${dto.reviewDecision}`, report: updated };
   }
 
-  async reviewTaskCompletion(taskId: string, dto: ReviewTaskDto, userId: string, userRole: string) {
+  async reviewTaskCompletion(
+    taskId: string,
+    dto: ReviewTaskDto,
+    userId: string,
+    userRole: string,
+  ) {
     await this.verifyTaskAccess(taskId, userId, userRole);
 
     const task = await this.prisma.task.findUnique({
@@ -2769,10 +3190,12 @@ export class TaskService {
     });
 
     const workerTargets = Array.from(
-      new Set([
-        task.assignee?.id,
-        ...task.taskAssignees.map((assignee) => assignee.userId),
-      ].filter((id): id is string => Boolean(id))),
+      new Set(
+        [
+          task.assignee?.id,
+          ...task.taskAssignees.map((assignee) => assignee.userId),
+        ].filter((id): id is string => Boolean(id)),
+      ),
     );
 
     await Promise.all(
@@ -2780,7 +3203,9 @@ export class TaskService {
         this.notificationsService.send({
           userId: workerId,
           title: 'Task Rejected',
-          body: dto.reviewDescription ?? 'Your task has been rejected and sent back for revision.',
+          body:
+            dto.reviewDescription ??
+            'Your task has been rejected and sent back for revision.',
           type: 'task',
           refId: taskId,
           refType: 'task',
@@ -2793,7 +3218,9 @@ export class TaskService {
       [UserRole.admin, UserRole.manager],
       {
         title: 'Task Rejected',
-        body: dto.reviewDescription ?? 'Your task has been rejected and sent back for revision.',
+        body:
+          dto.reviewDescription ??
+          'Your task has been rejected and sent back for revision.',
         type: 'task',
         refId: taskId,
         refType: 'task',

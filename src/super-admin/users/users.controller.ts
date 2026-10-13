@@ -1,4 +1,11 @@
-import { Controller, Get, Query, UseGuards, Patch, Param } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Query,
+  UseGuards,
+  Patch,
+  Param,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/guards/jwt.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
@@ -12,7 +19,10 @@ export class SuperAdminUsersController {
   constructor(private readonly usersService: SuperAdminUsersService) {}
 
   @Get()
-  async getUsers(@Query('role') role?: string, @Query('projectId') projectId?: string) {
+  async getUsers(
+    @Query('role') role?: string,
+    @Query('projectId') projectId?: string,
+  ) {
     return this.usersService.getUsers(role, projectId);
   }
 

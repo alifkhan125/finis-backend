@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateQuoteDto, UpdateQuoteDto } from './dto/quote.dto';
@@ -29,9 +33,10 @@ export class QuotesService {
   }
 
   private async findQuoteByIdOrSlug(identifier: string) {
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      identifier,
-    );
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        identifier,
+      );
 
     if (isUuid) {
       const byId = await this.prisma.quote.findUnique({
@@ -46,7 +51,12 @@ export class QuotesService {
       where: {
         OR: [
           { title: { equals: identifier, mode: 'insensitive' } },
-          { title: { equals: normalized.replace(/-/g, ' '), mode: 'insensitive' } },
+          {
+            title: {
+              equals: normalized.replace(/-/g, ' '),
+              mode: 'insensitive',
+            },
+          },
         ],
       },
       orderBy: { createdAt: 'desc' },
@@ -55,19 +65,31 @@ export class QuotesService {
 
   async createQuote(dto: CreateQuoteDto, userId: string) {
     if (dto.workItemId) {
-      return this.quoteLibraryService.createQuoteFromWorkItem(dto.workItemId, userId, {
-        quantity: dto.quantity,
-        unitCost: dto.unitPrice,
-        notes: dto.notes,
-        isCustom: dto.isCustom,
-      });
+      return this.quoteLibraryService.createQuoteFromWorkItem(
+        dto.workItemId,
+        userId,
+        {
+          quantity: dto.quantity,
+          unitCost: dto.unitPrice,
+          notes: dto.notes,
+          isCustom: dto.isCustom,
+        },
+      );
     }
 
     if (!dto.title?.trim()) {
-      throw new BadRequestException('Quote title is required when no work item is selected');
+      throw new BadRequestException(
+        'Quote title is required when no work item is selected',
+      );
     }
-    if (!dto.projectType?.trim() || !dto.propertyType?.trim() || !dto.unitType?.trim()) {
-      throw new BadRequestException('Project type, property type and unit type are required for manual quotes');
+    if (
+      !dto.projectType?.trim() ||
+      !dto.propertyType?.trim() ||
+      !dto.unitType?.trim()
+    ) {
+      throw new BadRequestException(
+        'Project type, property type and unit type are required for manual quotes',
+      );
     }
 
     const quantity = dto.quantity ?? 1;
@@ -92,7 +114,9 @@ export class QuotesService {
         isCustom: dto.isCustom ?? false,
       },
       include: {
-        createdBy: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+        createdBy: {
+          select: { id: true, fullName: true, avatarUrl: true, role: true },
+        },
         workItem: {
           select: {
             id: true,
@@ -115,7 +139,13 @@ export class QuotesService {
 
   async getQuotes(
     userId: string,
-    filters?: { projectType?: string; propertyType?: string; unitType?: string; workCategoryId?: string; workItemId?: string },
+    filters?: {
+      projectType?: string;
+      propertyType?: string;
+      unitType?: string;
+      workCategoryId?: string;
+      workItemId?: string;
+    },
   ) {
     const andConditions: Prisma.QuoteWhereInput[] = [];
 
@@ -133,7 +163,9 @@ export class QuotesService {
       const normalized = this.normalizeValue(filters.propertyType);
       andConditions.push({
         OR: [
-          { propertyType: { equals: filters.propertyType, mode: 'insensitive' } },
+          {
+            propertyType: { equals: filters.propertyType, mode: 'insensitive' },
+          },
           { propertyType: { equals: normalized, mode: 'insensitive' } },
         ],
       });
@@ -152,11 +184,15 @@ export class QuotesService {
     const quotes = await this.prisma.quote.findMany({
       where: {
         ...(andConditions.length ? { AND: andConditions } : {}),
-        ...(filters?.workCategoryId && { workCategoryId: filters.workCategoryId }),
+        ...(filters?.workCategoryId && {
+          workCategoryId: filters.workCategoryId,
+        }),
         ...(filters?.workItemId && { workItemId: filters.workItemId }),
       },
       include: {
-        createdBy: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+        createdBy: {
+          select: { id: true, fullName: true, avatarUrl: true, role: true },
+        },
         workItem: {
           select: {
             id: true,
@@ -191,7 +227,9 @@ export class QuotesService {
     return this.prisma.quote.findUnique({
       where: { id: quote.id },
       include: {
-        createdBy: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+        createdBy: {
+          select: { id: true, fullName: true, avatarUrl: true, role: true },
+        },
         workItem: {
           select: {
             id: true,
@@ -217,7 +255,9 @@ export class QuotesService {
     if (!quote) throw new NotFoundException('Quote not found');
 
     if (dto.workItemId) {
-      const workItem = await this.quoteLibraryService.resolveWorkItemById(dto.workItemId);
+      const workItem = await this.quoteLibraryService.resolveWorkItemById(
+        dto.workItemId,
+      );
       const quantity = dto.quantity ?? quote.quantity;
       const unitPrice = dto.unitPrice ?? workItem.unitCost ?? quote.unitPrice;
       const subtotal = Math.round(quantity * unitPrice * 100) / 100;
@@ -240,7 +280,9 @@ export class QuotesService {
           isCustom: dto.isCustom ?? quote.isCustom,
         },
         include: {
-          createdBy: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+          createdBy: {
+            select: { id: true, fullName: true, avatarUrl: true, role: true },
+          },
           workItem: {
             select: {
               id: true,
@@ -281,7 +323,9 @@ export class QuotesService {
         isCustom: dto.isCustom ?? quote.isCustom,
       },
       include: {
-        createdBy: { select: { id: true, fullName: true, avatarUrl: true, role: true } },
+        createdBy: {
+          select: { id: true, fullName: true, avatarUrl: true, role: true },
+        },
         workItem: {
           select: {
             id: true,

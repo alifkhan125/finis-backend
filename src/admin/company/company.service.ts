@@ -8,8 +8,13 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { StorageService } from '../../storage/storage.service';
-import { CreateCompanyDto, UpdateCompanyDto, CreateContactDto, UpdateContactDto, PaginationQueryDto } from './dto/company.dto';
-
+import {
+  CreateCompanyDto,
+  UpdateCompanyDto,
+  CreateContactDto,
+  UpdateContactDto,
+  PaginationQueryDto,
+} from './dto/company.dto';
 
 @Injectable()
 export class CompanyService {
@@ -18,7 +23,7 @@ export class CompanyService {
     private config: ConfigService,
     private notificationsService: NotificationsService,
     private storageService: StorageService,
-  ) { }
+  ) {}
 
   private async getAccessibleCompanyIds(userId: string, userRole: string) {
     if (userRole === 'admin') {
@@ -35,20 +40,29 @@ export class CompanyService {
         select: { companyId: true },
       });
 
-      return [...new Set(memberships.map((membership) => membership.companyId))];
+      return [
+        ...new Set(memberships.map((membership) => membership.companyId)),
+      ];
     }
 
     return [];
   }
 
   private async verifyOwner(companyId: string, adminId: string) {
-    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+    });
     if (!company) throw new NotFoundException('Company not found');
-    if (company.ownerId !== adminId) throw new ForbiddenException('You do not own this company');
+    if (company.ownerId !== adminId)
+      throw new ForbiddenException('You do not own this company');
     return company;
   }
 
-  private async verifyCompanyAccess(companyId: string, userId: string, userRole: string) {
+  private async verifyCompanyAccess(
+    companyId: string,
+    userId: string,
+    userRole: string,
+  ) {
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
       select: { id: true, ownerId: true, isActive: true },
@@ -63,7 +77,9 @@ export class CompanyService {
     }
 
     if (!company.isActive) {
-      throw new ForbiddenException('This company has been suspended by Super Admin. You cannot access company details.');
+      throw new ForbiddenException(
+        'This company has been suspended by Super Admin. You cannot access company details.',
+      );
     }
 
     if (userRole === 'admin' && company.ownerId === userId) {
@@ -96,7 +112,9 @@ export class CompanyService {
     if (admin?.isExemptFromSubscription) return;
 
     if (!admin?.tenantId) {
-      throw new ForbiddenException('Please purchase a subscription before creating a company.');
+      throw new ForbiddenException(
+        'Please purchase a subscription before creating a company.',
+      );
     }
 
     const tenant = await this.prisma.tenant.findUnique({
@@ -109,7 +127,9 @@ export class CompanyService {
     }
 
     if (tenant.status === 'suspended')
-      throw new ForbiddenException('Your account is suspended. Please contact support.');
+      throw new ForbiddenException(
+        'Your account is suspended. Please contact support.',
+      );
     if (tenant.status === 'cancelled')
       throw new ForbiddenException('Your subscription has been cancelled.');
 
@@ -127,11 +147,18 @@ export class CompanyService {
     }
   }
 
-  async getMyCompanies(adminId: string, query: PaginationQueryDto, userRole: string = 'admin') {
+  async getMyCompanies(
+    adminId: string,
+    query: PaginationQueryDto,
+    userRole: string = 'admin',
+  ) {
     const { page = 1, limit = 10, search } = query;
     const skip = (page - 1) * limit;
 
-    const accessibleCompanyIds = await this.getAccessibleCompanyIds(adminId, userRole);
+    const accessibleCompanyIds = await this.getAccessibleCompanyIds(
+      adminId,
+      userRole,
+    );
     const where: any = {
       ...(userRole === 'manager'
         ? { id: { in: accessibleCompanyIds } }
@@ -210,7 +237,6 @@ export class CompanyService {
       this.prisma.company.count({ where }),
     ]);
 
-
     const normalized = companies.map((c) => ({
       ...c,
       logoUrl: c.logoUrl ?? null,
@@ -222,7 +248,11 @@ export class CompanyService {
     };
   }
 
-  async getCompanyProfile(companyId: string, adminId: string, userRole: string = 'admin') {
+  async getCompanyProfile(
+    companyId: string,
+    adminId: string,
+    userRole: string = 'admin',
+  ) {
     await this.verifyCompanyAccess(companyId, adminId, userRole);
     const company: any = await this.prisma.company.findUnique({
       where: { id: companyId },
@@ -337,7 +367,11 @@ export class CompanyService {
   }
 
   // ─── PERFORMANCE TAB ──────────────────────────────────────────────────────
-  async getCompanyPerformance(companyId: string, adminId: string, userRole: string = 'admin') {
+  async getCompanyPerformance(
+    companyId: string,
+    adminId: string,
+    userRole: string = 'admin',
+  ) {
     await this.verifyCompanyAccess(companyId, adminId, userRole);
 
     const projects = await this.prisma.project.findMany({
@@ -376,7 +410,9 @@ export class CompanyService {
       }),
     ]);
 
-    const projectCompletionValues = projects.map((project) => project.progress ?? 0);
+    const projectCompletionValues = projects.map(
+      (project) => project.progress ?? 0,
+    );
     const averageCompletionRate =
       projectCompletionValues.length > 0
         ? this.roundToOneDecimal(
@@ -392,10 +428,14 @@ export class CompanyService {
     );
 
     const currentMonthProjects = projects.filter(
-      (project) => project.updatedAt && this.getMonthKey(project.updatedAt) === currentMonthKey,
+      (project) =>
+        project.updatedAt &&
+        this.getMonthKey(project.updatedAt) === currentMonthKey,
     );
     const previousMonthProjects = projects.filter(
-      (project) => project.updatedAt && this.getMonthKey(project.updatedAt) === previousMonthKey,
+      (project) =>
+        project.updatedAt &&
+        this.getMonthKey(project.updatedAt) === previousMonthKey,
     );
 
     const currentMonthCompletion =
@@ -428,11 +468,16 @@ export class CompanyService {
         : 0;
 
     const months = Array.from({ length: 6 }, (_, index) => {
-      const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - (5 - index), 1);
+      const date = new Date(
+        currentMonth.getFullYear(),
+        currentMonth.getMonth() - (5 - index),
+        1,
+      );
       const monthKey = this.getMonthKey(date);
 
       const monthProjects = projects.filter(
-        (project) => project.updatedAt && this.getMonthKey(project.updatedAt) === monthKey,
+        (project) =>
+          project.updatedAt && this.getMonthKey(project.updatedAt) === monthKey,
       );
       const monthReports = taskReports.filter(
         (report) => this.getMonthKey(report.submittedAt) === monthKey,
@@ -451,7 +496,9 @@ export class CompanyService {
       const monthCompliance =
         monthReports.length > 0
           ? this.roundToOneDecimal(
-              (monthReports.filter((report) => report.reviewDecision === 'approved').length /
+              (monthReports.filter(
+                (report) => report.reviewDecision === 'approved',
+              ).length /
                 monthReports.length) *
                 100,
             )
@@ -482,7 +529,10 @@ export class CompanyService {
         avgCompletionRate: averageCompletionRate,
         safetyCompliance,
         workerEfficiency,
-        momGrowth: this.formatChange(currentMonthCompletion, previousMonthCompletion),
+        momGrowth: this.formatChange(
+          currentMonthCompletion,
+          previousMonthCompletion,
+        ),
       },
       charts: {
         performanceTrends: {
@@ -509,7 +559,11 @@ export class CompanyService {
   }
 
   // ─── CREATE COMPANY ───────────────────────────────────────────────────────
-  async createCompany(dto: CreateCompanyDto, adminId: string, logoUrl?: string) {
+  async createCompany(
+    dto: CreateCompanyDto,
+    adminId: string,
+    logoUrl?: string,
+  ) {
     await this.checkCompanyLimit(adminId);
 
     const company = await this.prisma.company.create({
@@ -528,19 +582,27 @@ export class CompanyService {
       },
     });
 
-    this.notificationsService.send({
-      targetRole: 'super_admin',
-      title: 'New company created',
-      body: `${dto.name} company has been created`,
-      type: 'general',
-      refType: 'company',
-      refId: company.id,
-    }).catch(e => console.error('Failed to send notification:', e));
+    this.notificationsService
+      .send({
+        targetRole: 'super_admin',
+        title: 'New company created',
+        body: `${dto.name} company has been created`,
+        type: 'general',
+        refType: 'company',
+        refId: company.id,
+      })
+      .catch((e) => console.error('Failed to send notification:', e));
 
     return company;
   }
 
-  async updateCompany(companyId: string, dto: UpdateCompanyDto, adminId: string, logoUrl?: string, userRole: string = 'admin') {
+  async updateCompany(
+    companyId: string,
+    dto: UpdateCompanyDto,
+    adminId: string,
+    logoUrl?: string,
+    userRole: string = 'admin',
+  ) {
     await this.verifyCompanyAccess(companyId, adminId, userRole);
 
     const { logoUrl: _, ...restDto } = dto;
@@ -554,19 +616,34 @@ export class CompanyService {
     });
   }
 
-  async deleteCompany(companyId: string, adminId: string, userRole: string = 'admin') {
+  async deleteCompany(
+    companyId: string,
+    adminId: string,
+    userRole: string = 'admin',
+  ) {
     await this.verifyCompanyAccess(companyId, adminId, userRole);
-    await this.prisma.company.update({ where: { id: companyId }, data: { isActive: false } });
+    await this.prisma.company.update({
+      where: { id: companyId },
+      data: { isActive: false },
+    });
     return { message: 'Company deactivated successfully' };
   }
 
-  async hardDeleteCompany(companyId: string, adminId: string, userRole: string = 'admin') {
+  async hardDeleteCompany(
+    companyId: string,
+    adminId: string,
+    userRole: string = 'admin',
+  ) {
     await this.verifyCompanyAccess(companyId, adminId, userRole);
     await this.prisma.company.delete({ where: { id: companyId } });
     return { message: 'Company permanently deleted successfully' };
   }
 
-  async getAssignedProjects(companyId: string, adminId: string, userRole: string = 'admin') {
+  async getAssignedProjects(
+    companyId: string,
+    adminId: string,
+    userRole: string = 'admin',
+  ) {
     await this.verifyCompanyAccess(companyId, adminId, userRole);
     return this.prisma.project.findMany({
       where: { companyId },
@@ -606,13 +683,20 @@ export class CompanyService {
         _count: { select: { teamMembers: true, tasks: true, floors: true } },
         teamMembers: {
           take: 5,
-          include: { user: { select: { id: true, fullName: true, avatarUrl: true } } },
+          include: {
+            user: { select: { id: true, fullName: true, avatarUrl: true } },
+          },
         },
       },
     });
   }
 
-  async getContacts(companyId: string, adminId: string, query: PaginationQueryDto, userRole: string = 'admin') {
+  async getContacts(
+    companyId: string,
+    adminId: string,
+    query: PaginationQueryDto,
+    userRole: string = 'admin',
+  ) {
     await this.verifyCompanyAccess(companyId, adminId, userRole);
     const { page = 1, limit = 20 } = query;
 
@@ -621,14 +705,28 @@ export class CompanyService {
       orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
       include: {
         project: { select: { id: true, name: true } },
-        user: { select: { id: true, fullName: true, email: true, phone: true, avatarUrl: true, role: true } },
+        user: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            phone: true,
+            avatarUrl: true,
+            role: true,
+          },
+        },
       },
     });
 
     const grouped = new Map<string, any>();
     for (const member of members) {
       const existing = grouped.get(member.user.id);
-      const proj = { id: member.project.id, name: member.project.name, role: member.role ?? 'worker', joinedAt: member.createdAt };
+      const proj = {
+        id: member.project.id,
+        name: member.project.name,
+        role: member.role ?? 'worker',
+        joinedAt: member.createdAt,
+      };
       if (existing) {
         existing.projects.push(proj);
       } else {
@@ -653,20 +751,35 @@ export class CompanyService {
     };
   }
 
-  async getDocuments(companyId: string, adminId: string, userRole: string = 'admin') {
+  async getDocuments(
+    companyId: string,
+    adminId: string,
+    userRole: string = 'admin',
+  ) {
     await this.verifyCompanyAccess(companyId, adminId, userRole);
     return this.prisma.document.findMany({
       where: { companyId },
       orderBy: { uploadedAt: 'desc' },
       select: {
-        id: true, fileName: true, fileUrl: true, fileType: true, fileSizeMb: true, uploadedAt: true,
+        id: true,
+        fileName: true,
+        fileUrl: true,
+        fileType: true,
+        fileSizeMb: true,
+        uploadedAt: true,
         company: { select: { id: true, name: true } },
         uploadedByUser: { select: { id: true, fullName: true } },
       },
     });
   }
 
-  async uploadDocument(companyId: string, adminId: string, file: Express.Multer.File, userRole: string = 'admin', fileUrl?: string) {
+  async uploadDocument(
+    companyId: string,
+    adminId: string,
+    file: Express.Multer.File,
+    userRole: string = 'admin',
+    fileUrl?: string,
+  ) {
     await this.verifyCompanyAccess(companyId, adminId, userRole);
     if (!fileUrl) {
       throw new BadRequestException('S3 upload failed');
@@ -684,14 +797,20 @@ export class CompanyService {
     });
   }
 
-  async deleteDocument(companyId: string, documentId: string, adminId: string, userRole: string = 'admin') {
+  async deleteDocument(
+    companyId: string,
+    documentId: string,
+    adminId: string,
+    userRole: string = 'admin',
+  ) {
     await this.verifyCompanyAccess(companyId, adminId, userRole);
     const doc = await this.prisma.document.findUnique({
       where: { id: documentId },
       select: { companyId: true, fileUrl: true },
     });
     if (!doc) throw new NotFoundException('Document not found');
-    if (doc.companyId !== companyId) throw new ForbiddenException('Document does not belong to this company');
+    if (doc.companyId !== companyId)
+      throw new ForbiddenException('Document does not belong to this company');
 
     if (doc.fileUrl) {
       await this.storageService.deleteFile(doc.fileUrl);
@@ -700,13 +819,17 @@ export class CompanyService {
     await this.prisma.document.delete({ where: { id: documentId } });
     return { message: 'Document deleted successfully' };
   }
-  async generateShareLink(companyId: string, adminId: string, userRole: string) {
+  async generateShareLink(
+    companyId: string,
+    adminId: string,
+    userRole: string,
+  ) {
     await this.verifyCompanyAccess(companyId, adminId, userRole);
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
       select: { shareToken: true },
     });
-    
+
     if (!company) {
       throw new NotFoundException('Company not found');
     }

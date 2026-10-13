@@ -47,7 +47,10 @@ export class PayrollService {
   ) {
     if (userRole === UserRole.super_admin) return;
 
-    const accessibleCompanyIds = await this.getAccessibleCompanyIds(adminId, userRole);
+    const accessibleCompanyIds = await this.getAccessibleCompanyIds(
+      adminId,
+      userRole,
+    );
     if (!accessibleCompanyIds.includes(companyId)) {
       throw new ForbiddenException('Access denied');
     }
@@ -128,11 +131,13 @@ export class PayrollService {
         ? Math.max(
             0,
             Math.floor(
-              (session.checkOutTime.getTime() - session.checkInTime.getTime()) / 1000,
+              (session.checkOutTime.getTime() - session.checkInTime.getTime()) /
+                1000,
             ),
           )
         : 0;
-      const workedSeconds = zoneSeconds || storedHoursSeconds || closedDurationSeconds;
+      const workedSeconds =
+        zoneSeconds || storedHoursSeconds || closedDurationSeconds;
       totalWorkedSeconds += workedSeconds;
 
       sessionDetails.push({
@@ -227,7 +232,11 @@ export class PayrollService {
           role: UserRole.worker,
           OR: [
             { companyMembers: { some: { companyId: { in: companyIds } } } },
-            { projectMemberships: { some: { project: { companyId: { in: companyIds } } } } },
+            {
+              projectMemberships: {
+                some: { project: { companyId: { in: companyIds } } },
+              },
+            },
           ],
         },
         ...(projectId && { sessions: { some: { projectId } } }),
@@ -268,9 +277,11 @@ export class PayrollService {
     });
 
     for (const attendance of attendances) {
-      const fallbackProject = attendance.user.projectMemberships[0]?.project ?? null;
+      const fallbackProject =
+        attendance.user.projectMemberships[0]?.project ?? null;
       const companyId =
-        fallbackProject?.companyId ?? attendance.user.companyMembers[0]?.companyId;
+        fallbackProject?.companyId ??
+        attendance.user.companyMembers[0]?.companyId;
       if (!companyId) continue;
 
       const sessionsByProject = new Map<string | null, number>();
@@ -286,14 +297,18 @@ export class PayrollService {
           ? Math.max(
               0,
               Math.floor(
-                (session.checkOutTime.getTime() - session.checkInTime.getTime()) / 1000,
+                (session.checkOutTime.getTime() -
+                  session.checkInTime.getTime()) /
+                  1000,
               ),
             )
           : 0;
-        const workedSeconds = zoneSeconds || storedHoursSeconds || closedDurationSeconds;
+        const workedSeconds =
+          zoneSeconds || storedHoursSeconds || closedDurationSeconds;
         if (workedSeconds <= 0) continue;
 
-        const resolvedProjectId = session.projectId ?? fallbackProject?.id ?? null;
+        const resolvedProjectId =
+          session.projectId ?? fallbackProject?.id ?? null;
         sessionsByProject.set(
           resolvedProjectId,
           (sessionsByProject.get(resolvedProjectId) ?? 0) + workedSeconds,
@@ -371,7 +386,13 @@ export class PayrollService {
    * 3. legacy date/month/year query params
    */
   private buildDateWindow(query: {
-    range?: 'custom' | 'weekly' | 'bi-weekly' | 'monthly' | 'bi-monthly' | 'yearly';
+    range?:
+      | 'custom'
+      | 'weekly'
+      | 'bi-weekly'
+      | 'monthly'
+      | 'bi-monthly'
+      | 'yearly';
     startDate?: string;
     endDate?: string;
     date?: string;
@@ -399,8 +420,12 @@ export class PayrollService {
     };
 
     if (query.startDate || query.endDate) {
-      const start = query.startDate ? normalizeStart(this.parseDateOnly(query.startDate)) : normalizeStart(now);
-      const end = query.endDate ? normalizeEnd(this.parseDateOnly(query.endDate)) : normalizeEnd(start);
+      const start = query.startDate
+        ? normalizeStart(this.parseDateOnly(query.startDate))
+        : normalizeStart(now);
+      const end = query.endDate
+        ? normalizeEnd(this.parseDateOnly(query.endDate))
+        : normalizeEnd(start);
       return { startDate: start, endDate: end };
     }
 
@@ -441,12 +466,17 @@ export class PayrollService {
 
     if (query.date) {
       const selected = this.parseDateOnly(query.date);
-      return { startDate: normalizeStart(selected), endDate: normalizeEnd(selected) };
+      return {
+        startDate: normalizeStart(selected),
+        endDate: normalizeEnd(selected),
+      };
     }
 
     if (query.month || query.year) {
       const targetYear = query.year ? parseInt(query.year) : now.getFullYear();
-      const targetMonthIndex = query.month ? parseInt(query.month) - 1 : now.getMonth();
+      const targetMonthIndex = query.month
+        ? parseInt(query.month) - 1
+        : now.getMonth();
       return {
         startDate: normalizeStart(new Date(targetYear, targetMonthIndex, 1)),
         endDate: normalizeEnd(new Date(targetYear, targetMonthIndex + 1, 0)),
@@ -500,7 +530,8 @@ export class PayrollService {
     }
 
     const isExpired = Boolean(
-      tenant.currentPeriodEnd && new Date(tenant.currentPeriodEnd).getTime() < Date.now(),
+      tenant.currentPeriodEnd &&
+      new Date(tenant.currentPeriodEnd).getTime() < Date.now(),
     );
 
     return {
@@ -524,18 +555,26 @@ export class PayrollService {
     };
   }
 
-  private async assertPayrollSubscriptionActive(adminId: string, userRole: string) {
-    if (userRole === UserRole.super_admin) return this.getTenantSubscriptionContext(adminId);
+  private async assertPayrollSubscriptionActive(
+    adminId: string,
+    userRole: string,
+  ) {
+    if (userRole === UserRole.super_admin)
+      return this.getTenantSubscriptionContext(adminId);
 
     const ctx = await this.getTenantSubscriptionContext(adminId);
-    
+
     if (ctx.isExemptFromSubscription) return ctx;
-    
+
     if (!ctx.tenantId) {
-      throw new ForbiddenException('Please purchase a subscription before using payroll.');
+      throw new ForbiddenException(
+        'Please purchase a subscription before using payroll.',
+      );
     }
     if (ctx.subscriptionStatus == null) {
-      throw new ForbiddenException('Please activate a subscription before using payroll.');
+      throw new ForbiddenException(
+        'Please activate a subscription before using payroll.',
+      );
     }
     if (ctx.subscriptionStatus !== 'active' || ctx.isExpired) {
       throw new ForbiddenException('Active subscription required for payroll');
@@ -562,19 +601,30 @@ export class PayrollService {
     const overtimePay = overtimeHours * ratePerHour * 1.5;
     const grossPay = Math.round((regularPay + overtimePay) * 100) / 100;
 
-    const cppEmployee = Math.round(grossPay * (config.cppEmployeeRate || 0.0595) * 100) / 100;
-    const eiEmployee = Math.round(grossPay * (config.eiEmployeeRate || 0.0166) * 100) / 100;
-    const federalTax = Math.round(grossPay * (config.federalTaxRate || 0.15) * 100) / 100;
-    const provincialTax = Math.round(grossPay * (config.provincialTaxRate || 0.0505) * 100) / 100;
-    const deductions = Math.round((cppEmployee + eiEmployee + federalTax + provincialTax) * 100) / 100;
+    const cppEmployee =
+      Math.round(grossPay * (config.cppEmployeeRate || 0.0595) * 100) / 100;
+    const eiEmployee =
+      Math.round(grossPay * (config.eiEmployeeRate || 0.0166) * 100) / 100;
+    const federalTax =
+      Math.round(grossPay * (config.federalTaxRate || 0.15) * 100) / 100;
+    const provincialTax =
+      Math.round(grossPay * (config.provincialTaxRate || 0.0505) * 100) / 100;
+    const deductions =
+      Math.round(
+        (cppEmployee + eiEmployee + federalTax + provincialTax) * 100,
+      ) / 100;
     const netPay = Math.round((grossPay - deductions) * 100) / 100;
 
-    const cppEmployer = Math.round(grossPay * config.cppEmployerRate * 100) / 100;
+    const cppEmployer =
+      Math.round(grossPay * config.cppEmployerRate * 100) / 100;
     const eiEmployer = Math.round(grossPay * config.eiEmployerRate * 100) / 100;
     const wsib = Math.round(grossPay * config.wsibRate * 100) / 100;
-    const vacationPay = Math.round(grossPay * config.vacationPayRate * 100) / 100;
+    const vacationPay =
+      Math.round(grossPay * config.vacationPayRate * 100) / 100;
     const employerCost =
-      Math.round((grossPay + cppEmployer + eiEmployer + wsib + vacationPay) * 100) / 100;
+      Math.round(
+        (grossPay + cppEmployer + eiEmployer + wsib + vacationPay) * 100,
+      ) / 100;
 
     return {
       grossPay,
@@ -594,8 +644,14 @@ export class PayrollService {
   // 1. GET PAYROLL USERS — selected date-এর attendance থেকে hours
   // ─────────────────────────────────────────────────────────────────────────
   async getPayrollUsers(adminId: string, userRole: string, date?: string) {
-    const subscription = await this.assertPayrollSubscriptionActive(adminId, userRole);
-    const accessibleCompanyIds = await this.getAccessibleCompanyIds(adminId, userRole);
+    const subscription = await this.assertPayrollSubscriptionActive(
+      adminId,
+      userRole,
+    );
+    const accessibleCompanyIds = await this.getAccessibleCompanyIds(
+      adminId,
+      userRole,
+    );
 
     // Selected date অথবা আজকের date
     const targetDate = date ? new Date(date) : new Date();
@@ -649,7 +705,9 @@ export class PayrollService {
     for (const member of projectMembers) {
       const existing = userMap.get(member.userId);
       if (existing) {
-        const alreadyAdded = existing.projects.some((p) => p.id === member.project.id);
+        const alreadyAdded = existing.projects.some(
+          (p) => p.id === member.project.id,
+        );
         if (!alreadyAdded) existing.projects.push(member.project);
       } else {
         userMap.set(member.userId, {
@@ -808,7 +866,9 @@ export class PayrollService {
       totalUsers: filteredUsers.length,
       users: filteredUsers,
       approvedUsers: filteredUsers.filter((item) =>
-        item.latestPayroll ? ['approved', 'paid'].includes(item.latestPayroll.status) : false,
+        item.latestPayroll
+          ? ['approved', 'paid'].includes(item.latestPayroll.status)
+          : false,
       ),
       subscription,
     };
@@ -824,7 +884,11 @@ export class PayrollService {
   // ─────────────────────────────────────────────────────────────────────────
   // 2. CREATE PAYROLL — geofencing attendance থেকে auto hours
   // ─────────────────────────────────────────────────────────────────────────
-  async createPayroll(dto: CreatePayrollDto, adminId: string, userRole: string) {
+  async createPayroll(
+    dto: CreatePayrollDto,
+    adminId: string,
+    userRole: string,
+  ) {
     await this.assertPayrollSubscriptionActive(adminId, userRole);
     const worker = await this.prisma.user.findUnique({
       where: { id: dto.workerId },
@@ -868,7 +932,10 @@ export class PayrollService {
 
     // payPeriodStart date-এর attendance sessions থেকে hours বের করো
     const targetDate = new Date(dto.payPeriodStart);
-    const workedData = await this.getWorkedHoursForDate(dto.workerId, targetDate);
+    const workedData = await this.getWorkedHoursForDate(
+      dto.workerId,
+      targetDate,
+    );
 
     const regularHours = workedData.totalHours;
     const overtimeHours = 0;
@@ -923,13 +990,32 @@ export class PayrollService {
     month?: string,
     year?: string,
     projectId?: string,
-    range?: 'custom' | 'weekly' | 'bi-weekly' | 'monthly' | 'bi-monthly' | 'yearly',
+    range?:
+      | 'custom'
+      | 'weekly'
+      | 'bi-weekly'
+      | 'monthly'
+      | 'bi-monthly'
+      | 'yearly',
     startDate?: string,
     endDate?: string,
   ) {
-    const subscription = await this.assertPayrollSubscriptionActive(adminId, userRole);
-    const accessibleCompanyIds = await this.getAccessibleCompanyIds(adminId, userRole);
-    const window = this.buildDateWindow({ range, startDate, endDate, date, month, year });
+    const subscription = await this.assertPayrollSubscriptionActive(
+      adminId,
+      userRole,
+    );
+    const accessibleCompanyIds = await this.getAccessibleCompanyIds(
+      adminId,
+      userRole,
+    );
+    const window = this.buildDateWindow({
+      range,
+      startDate,
+      endDate,
+      date,
+      month,
+      year,
+    });
     const dbWindow = this.toDbDateWindow(window);
 
     await this.syncPayrollDraftsFromAttendance(
@@ -941,7 +1027,9 @@ export class PayrollService {
 
     const payrolls = await this.prisma.payroll.findMany({
       where: {
-        ...(accessibleCompanyIds.length > 0 ? { companyId: { in: accessibleCompanyIds } } : {}),
+        ...(accessibleCompanyIds.length > 0
+          ? { companyId: { in: accessibleCompanyIds } }
+          : {}),
         payPeriodStart: { lte: dbWindow.endDate },
         payPeriodEnd: { gte: dbWindow.startDate },
         ...(projectId && { projectId }),
@@ -1042,14 +1130,19 @@ export class PayrollService {
       existing.deductions += payroll.deductions;
       existing.netPay += payroll.netPay;
       if (existing.status !== 'draft') {
-        existing.status = payroll.status === 'draft' ? 'draft' : existing.status;
+        existing.status =
+          payroll.status === 'draft' ? 'draft' : existing.status;
       }
       if (payroll.status === 'draft') {
         existing.status = 'draft';
       } else if (existing.status !== 'draft' && payroll.status === 'approved') {
         existing.status = 'approved';
       }
-      if (payroll.status === 'paid' && existing.status !== 'draft' && existing.status !== 'approved') {
+      if (
+        payroll.status === 'paid' &&
+        existing.status !== 'draft' &&
+        existing.status !== 'approved'
+      ) {
         existing.status = 'paid';
       }
     }
@@ -1062,7 +1155,9 @@ export class PayrollService {
     );
     const totalPay = groupedPayrolls.reduce((s, p) => s + p.grossPay, 0);
     const pending = groupedPayrolls.filter((p) => p.status === 'draft').length;
-    const processing = groupedPayrolls.filter((p) => p.status === 'approved').length;
+    const processing = groupedPayrolls.filter(
+      (p) => p.status === 'approved',
+    ).length;
     const paid = groupedPayrolls.filter((p) => p.status === 'paid').length;
 
     const inventoryAlerts = await this.prisma.inventoryItem.count({
@@ -1089,7 +1184,9 @@ export class PayrollService {
         worker: p.worker,
         displayRole: p.worker.department ?? 'Worker',
         hours: Math.round((p.regularHours + p.overtimeHours) * 100) / 100,
-        hoursDisplay: this.formatMinutes(Math.floor((p.regularHours + p.overtimeHours) * 60)),
+        hoursDisplay: this.formatMinutes(
+          Math.floor((p.regularHours + p.overtimeHours) * 60),
+        ),
         overtimeHours: p.overtimeHours,
         rate: p.ratePerHour,
         grossPay: p.grossPay,
@@ -1208,7 +1305,11 @@ export class PayrollService {
     if (!payroll) throw new NotFoundException('Payroll not found');
 
     if (userRole !== UserRole.worker) {
-      await this.assertPayrollCompanyAccess(payroll.companyId, userId, userRole);
+      await this.assertPayrollCompanyAccess(
+        payroll.companyId,
+        userId,
+        userRole,
+      );
     }
 
     if (userRole === UserRole.worker && payroll.workerId !== userId) {
@@ -1324,7 +1425,11 @@ export class PayrollService {
 
     let approvedCount = 0;
     for (const payroll of payrolls) {
-      await this.assertPayrollCompanyAccess(payroll.companyId, adminId, userRole);
+      await this.assertPayrollCompanyAccess(
+        payroll.companyId,
+        adminId,
+        userRole,
+      );
       if (payroll.status !== 'draft') {
         continue;
       }
@@ -1363,18 +1468,36 @@ export class PayrollService {
     month?: string,
     year?: string,
     projectId?: string,
-    range?: 'custom' | 'weekly' | 'bi-weekly' | 'monthly' | 'bi-monthly' | 'yearly',
+    range?:
+      | 'custom'
+      | 'weekly'
+      | 'bi-weekly'
+      | 'monthly'
+      | 'bi-monthly'
+      | 'yearly',
     startDate?: string,
     endDate?: string,
   ) {
     await this.assertPayrollSubscriptionActive(adminId, userRole);
-    const accessibleCompanyIds = await this.getAccessibleCompanyIds(adminId, userRole);
-    const window = this.buildDateWindow({ date, month, year, range, startDate, endDate });
+    const accessibleCompanyIds = await this.getAccessibleCompanyIds(
+      adminId,
+      userRole,
+    );
+    const window = this.buildDateWindow({
+      date,
+      month,
+      year,
+      range,
+      startDate,
+      endDate,
+    });
     const dbWindow = this.toDbDateWindow(window);
 
     const payrolls = await this.prisma.payroll.findMany({
       where: {
-        ...(accessibleCompanyIds.length > 0 ? { companyId: { in: accessibleCompanyIds } } : {}),
+        ...(accessibleCompanyIds.length > 0
+          ? { companyId: { in: accessibleCompanyIds } }
+          : {}),
         status: 'approved',
         payPeriodStart: { lte: dbWindow.endDate },
         payPeriodEnd: { gte: dbWindow.startDate },
@@ -1400,7 +1523,10 @@ export class PayrollService {
     const totalGrossPay = payrolls.reduce((sum, p) => sum + p.grossPay, 0);
     const totalNetPay = payrolls.reduce((sum, p) => sum + p.netPay, 0);
     const approvedCount = payrolls.length;
-    const totalHours = payrolls.reduce((sum, p) => sum + p.regularHours + p.overtimeHours, 0);
+    const totalHours = payrolls.reduce(
+      (sum, p) => sum + p.regularHours + p.overtimeHours,
+      0,
+    );
     const averageHourlyRate = payrolls.length
       ? payrolls.reduce((sum, p) => sum + p.ratePerHour, 0) / payrolls.length
       : 0;
@@ -1431,18 +1557,36 @@ export class PayrollService {
     month?: string,
     year?: string,
     projectId?: string,
-    range?: 'custom' | 'weekly' | 'bi-weekly' | 'monthly' | 'bi-monthly' | 'yearly',
+    range?:
+      | 'custom'
+      | 'weekly'
+      | 'bi-weekly'
+      | 'monthly'
+      | 'bi-monthly'
+      | 'yearly',
     startDate?: string,
     endDate?: string,
   ) {
     await this.assertPayrollSubscriptionActive(adminId, userRole);
-    const accessibleCompanyIds = await this.getAccessibleCompanyIds(adminId, userRole);
-    const window = this.buildDateWindow({ date, month, year, range, startDate, endDate });
+    const accessibleCompanyIds = await this.getAccessibleCompanyIds(
+      adminId,
+      userRole,
+    );
+    const window = this.buildDateWindow({
+      date,
+      month,
+      year,
+      range,
+      startDate,
+      endDate,
+    });
     const dbWindow = this.toDbDateWindow(window);
 
     const payrolls = await this.prisma.payroll.findMany({
       where: {
-        ...(accessibleCompanyIds.length > 0 ? { companyId: { in: accessibleCompanyIds } } : {}),
+        ...(accessibleCompanyIds.length > 0
+          ? { companyId: { in: accessibleCompanyIds } }
+          : {}),
         status: 'approved',
         payPeriodStart: { lte: dbWindow.endDate },
         payPeriodEnd: { gte: dbWindow.startDate },
@@ -1465,7 +1609,10 @@ export class PayrollService {
       orderBy: { createdAt: 'desc' },
     });
 
-    const totalHours = payrolls.reduce((sum, p) => sum + p.regularHours + p.overtimeHours, 0);
+    const totalHours = payrolls.reduce(
+      (sum, p) => sum + p.regularHours + p.overtimeHours,
+      0,
+    );
     const totalGrossPay = payrolls.reduce((sum, p) => sum + p.grossPay, 0);
     const totalDeductions = payrolls.reduce((sum, p) => sum + p.deductions, 0);
     const totalNetPay = payrolls.reduce((sum, p) => sum + p.netPay, 0);
@@ -1583,7 +1730,11 @@ export class PayrollService {
     const skipped: string[] = [];
 
     for (const payroll of payrolls) {
-      await this.assertPayrollCompanyAccess(payroll.companyId, adminId, userRole);
+      await this.assertPayrollCompanyAccess(
+        payroll.companyId,
+        adminId,
+        userRole,
+      );
       if (payroll.status !== 'approved') {
         skipped.push(payroll.id);
         continue;
@@ -1629,7 +1780,10 @@ export class PayrollService {
     projectId?: string,
   ) {
     await this.assertPayrollSubscriptionActive(adminId, userRole);
-    const accessibleCompanyIds = await this.getAccessibleCompanyIds(adminId, userRole);
+    const accessibleCompanyIds = await this.getAccessibleCompanyIds(
+      adminId,
+      userRole,
+    );
     const now = new Date();
     const m = month ? parseInt(month) - 1 : now.getMonth();
     const y = year ? parseInt(year) : now.getFullYear();
@@ -1639,7 +1793,9 @@ export class PayrollService {
 
     const payrolls = await this.prisma.payroll.findMany({
       where: {
-        ...(accessibleCompanyIds.length > 0 ? { companyId: { in: accessibleCompanyIds } } : {}),
+        ...(accessibleCompanyIds.length > 0
+          ? { companyId: { in: accessibleCompanyIds } }
+          : {}),
         status: 'approved',
         payPeriodStart: { gte: startDate },
         payPeriodEnd: { lte: endDate },
@@ -1676,7 +1832,10 @@ export class PayrollService {
     }));
 
     const totalGrossPay = results.reduce((sum, item) => sum + item.grossPay, 0);
-    const totalDeductions = results.reduce((sum, item) => sum + item.deductions, 0);
+    const totalDeductions = results.reduce(
+      (sum, item) => sum + item.deductions,
+      0,
+    );
     const totalNetPay = results.reduce((sum, item) => sum + item.netPay, 0);
 
     return {
@@ -1697,13 +1856,29 @@ export class PayrollService {
     date?: string,
     month?: string,
     year?: string,
-    range?: 'custom' | 'weekly' | 'bi-weekly' | 'monthly' | 'bi-monthly' | 'yearly',
+    range?:
+      | 'custom'
+      | 'weekly'
+      | 'bi-weekly'
+      | 'monthly'
+      | 'bi-monthly'
+      | 'yearly',
     startDate?: string,
     endDate?: string,
   ) {
-    const subscription = await this.assertPayrollSubscriptionActive(adminId, userRole);
+    const subscription = await this.assertPayrollSubscriptionActive(
+      adminId,
+      userRole,
+    );
     const companyIds = await this.getAdminCompanyIds(adminId, userRole);
-    const window = this.buildDateWindow({ date, month, year, range, startDate, endDate });
+    const window = this.buildDateWindow({
+      date,
+      month,
+      year,
+      range,
+      startDate,
+      endDate,
+    });
     const dbWindow = this.toDbDateWindow(window);
 
     await this.syncPayrollDraftsFromAttendance(
@@ -1735,13 +1910,19 @@ export class PayrollService {
           role: UserRole.worker,
           OR: [
             { companyMembers: { some: { companyId: { in: companyIds } } } },
-            { projectMemberships: { some: { project: { companyId: { in: companyIds } } } } },
+            {
+              projectMemberships: {
+                some: { project: { companyId: { in: companyIds } } },
+              },
+            },
           ],
         },
       }),
       this.prisma.inventoryItem.count({
         where: {
-          ...(companyIds.length > 0 ? { project: { companyId: { in: companyIds } } } : {}),
+          ...(companyIds.length > 0
+            ? { project: { companyId: { in: companyIds } } }
+            : {}),
           currentQty: { lte: 0 },
         },
       }),
@@ -1783,10 +1964,20 @@ export class PayrollService {
       payroll.grossPay = computed.grossPay;
     }
 
-    const paidPayrolls = payrolls.filter((payroll) => payroll.status === 'paid');
-    const totalHours = payrolls.reduce((sum, payroll) => sum + payroll.regularHours + payroll.overtimeHours, 0);
-    const totalPay = paidPayrolls.reduce((sum, payroll) => sum + payroll.grossPay, 0);
-    const pending = payrolls.filter((payroll) => payroll.status === 'draft').length;
+    const paidPayrolls = payrolls.filter(
+      (payroll) => payroll.status === 'paid',
+    );
+    const totalHours = payrolls.reduce(
+      (sum, payroll) => sum + payroll.regularHours + payroll.overtimeHours,
+      0,
+    );
+    const totalPay = paidPayrolls.reduce(
+      (sum, payroll) => sum + payroll.grossPay,
+      0,
+    );
+    const pending = payrolls.filter(
+      (payroll) => payroll.status === 'draft',
+    ).length;
     const paid = paidPayrolls.length;
 
     return {
@@ -1804,7 +1995,10 @@ export class PayrollService {
   }
 
   async getPayrollSubscriptionStatus(adminId: string, userRole: string) {
-    const subscription = await this.assertPayrollSubscriptionActive(adminId, userRole);
+    const subscription = await this.assertPayrollSubscriptionActive(
+      adminId,
+      userRole,
+    );
     return subscription;
   }
 

@@ -20,12 +20,12 @@ export class NotificationsController {
   @Post('send')
   send(
     @Body()
-      dto: {
-        userId?: string;
+    dto: {
+      userId?: string;
       targetRole?: 'super_admin' | 'admin' | 'manager' | 'worker' | 'viewer';
-        title: string;
-        body: string;
-        type?: string;
+      title: string;
+      body: string;
+      type?: string;
       refId?: string;
       refType?: string;
     },

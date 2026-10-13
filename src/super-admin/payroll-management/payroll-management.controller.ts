@@ -25,7 +25,7 @@ import {
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.super_admin, UserRole.admin)
 export class PayrollManagementController {
-  constructor(private payrollManagementService: PayrollManagementService) { }
+  constructor(private payrollManagementService: PayrollManagementService) {}
 
   // ─── IMAGE 1: Dashboard ───────────────────────────────────────────────────
 
@@ -46,7 +46,11 @@ export class PayrollManagementController {
     @CurrentUser('role') userRole: string,
     @Query() query: PayrollManagementQueryDto,
   ) {
-    return this.payrollManagementService.getPayrollRecords(userId, userRole, query);
+    return this.payrollManagementService.getPayrollRecords(
+      userId,
+      userRole,
+      query,
+    );
   }
 
   /** POST /admin/payroll-management/process */
@@ -56,7 +60,11 @@ export class PayrollManagementController {
     @CurrentUser('role') userRole: string,
     @Query() query: PayrollManagementQueryDto,
   ) {
-    return this.payrollManagementService.processCurrentPeriod(userId, userRole, query);
+    return this.payrollManagementService.processCurrentPeriod(
+      userId,
+      userRole,
+      query,
+    );
   }
 
   /** POST /admin/payroll-management/report */
@@ -67,7 +75,10 @@ export class PayrollManagementController {
     @Body() body: GeneratePayrollReportDto,
     @Query() query: PayrollManagementQueryDto,
   ) {
-    return this.payrollManagementService.generateReport(userId, userRole, { ...query, ...body });
+    return this.payrollManagementService.generateReport(userId, userRole, {
+      ...query,
+      ...body,
+    });
   }
 
   // ─── IMAGE 2: Configuration ───────────────────────────────────────────────
@@ -125,7 +136,11 @@ export class PayrollManagementController {
     @CurrentUser('role') userRole: string,
     @Body() dto: PayWorkerPayrollDto,
   ) {
-    return this.payrollManagementService.payWorkerPayroll(userId, userRole, dto);
+    return this.payrollManagementService.payWorkerPayroll(
+      userId,
+      userRole,
+      dto,
+    );
   }
 
   /** POST /super_admin/payroll-management/mark-paid/:payrollId */
@@ -135,14 +150,16 @@ export class PayrollManagementController {
     @CurrentUser('role') userRole: string,
     @Param('payrollId') payrollId: string,
   ) {
-    return this.payrollManagementService.markPayrollPaid(userId, userRole, payrollId);
+    return this.payrollManagementService.markPayrollPaid(
+      userId,
+      userRole,
+      payrollId,
+    );
   }
 
   /** GET /super_admin/payroll-management/worker/:workerId */
   @Get('worker/:workerId')
-  getWorkerPayrolls(
-    @Param('workerId') workerId: string,
-  ) {
+  getWorkerPayrolls(@Param('workerId') workerId: string) {
     return this.payrollManagementService.getWorkerPayrolls(workerId);
   }
 }

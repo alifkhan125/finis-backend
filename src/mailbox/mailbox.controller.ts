@@ -29,7 +29,11 @@ import { SendMailDto } from './dto/send-mail.dto';
 import { UpdateMailboxStatusDto } from './dto/update-status.dto';
 import { StorageService } from '../storage/storage.service';
 
-const pdfFileFilter = (_: unknown, file: any, cb: (error: Error | null, acceptFile: boolean) => void) => {
+const pdfFileFilter = (
+  _: unknown,
+  file: any,
+  cb: (error: Error | null, acceptFile: boolean) => void,
+) => {
   const extension = extname(file.originalname).toLowerCase();
   const isPdfMimeType = file.mimetype === 'application/pdf';
   const isPdfExtension = extension === '.pdf';
@@ -51,12 +55,14 @@ export class MailboxController {
 
   @Post('mail/send')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.manager)
-  @UseInterceptors(FileInterceptor('file', {
-    storage: memoryStorage(),
-    fileFilter: pdfFileFilter,
-    limits: { fileSize: 20 * 1024 * 1024 },
-  }))
+  @Roles(UserRole.admin, UserRole.manager, UserRole.super_admin)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      fileFilter: pdfFileFilter,
+      limits: { fileSize: 20 * 1024 * 1024 },
+    }),
+  )
   async sendMail(
     @CurrentUser('id') managerId: string,
     @Body() dto: SendMailDto,
@@ -104,65 +110,75 @@ export class MailboxController {
 
   @Get('mailbox')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.manager)
+  @Roles(UserRole.admin, UserRole.manager, UserRole.super_admin)
   listMailbox(
-    @CurrentUser('id') managerId: string,
+    @CurrentUser() user: any,
     @Query('status') status?: string,
     @Query('starred') starred?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.mailboxService.listMailbox(managerId, status, starred, page, limit);
+    return this.mailboxService.listMailbox(
+      user,
+      status,
+      starred,
+      page,
+      limit,
+    );
   }
 
   @Get('mailbox/:conversationId')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.manager)
+  @Roles(UserRole.admin, UserRole.manager, UserRole.super_admin)
   getConversation(
-    @CurrentUser('id') managerId: string,
+    @CurrentUser() user: any,
     @Param('conversationId') conversationId: string,
   ) {
-    return this.mailboxService.getConversation(managerId, conversationId);
+    return this.mailboxService.getConversation(user, conversationId);
   }
 
   @Patch('mailbox/:conversationId/status')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.manager)
+  @Roles(UserRole.admin, UserRole.manager, UserRole.super_admin)
   updateStatus(
-    @CurrentUser('id') managerId: string,
+    @CurrentUser() user: any,
     @Param('conversationId') conversationId: string,
     @Body() dto: UpdateMailboxStatusDto,
   ) {
-    return this.mailboxService.updateStatus(managerId, conversationId, dto.status);
+    return this.mailboxService.updateStatus(
+      user,
+      conversationId,
+      dto.status,
+    );
   }
 
   @Patch('mailbox/:conversationId/star')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.manager)
+  @Roles(UserRole.admin, UserRole.manager, UserRole.super_admin)
   toggleStar(
-    @CurrentUser('id') managerId: string,
+    @CurrentUser() user: any,
     @Param('conversationId') conversationId: string,
   ) {
-    return this.mailboxService.toggleStar(managerId, conversationId);
+    return this.mailboxService.toggleStar(user, conversationId);
   }
 
   @Post('mailbox/:conversationId/favorite')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.manager)
+  @Roles(UserRole.admin, UserRole.manager, UserRole.super_admin)
   favoriteConversation(
-    @CurrentUser('id') managerId: string,
+    @CurrentUser() user: any,
     @Param('conversationId') conversationId: string,
   ) {
-    return this.mailboxService.setFavorite(managerId, conversationId, true);
+    return this.mailboxService.setFavorite(user, conversationId, true);
   }
 
   @Delete('mailbox/:conversationId/favorite')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.manager)
+  @Roles(UserRole.admin, UserRole.manager, UserRole.super_admin)
   unfavoriteConversation(
-    @CurrentUser('id') managerId: string,
+    @CurrentUser() user: any,
     @Param('conversationId') conversationId: string,
   ) {
-    return this.mailboxService.setFavorite(managerId, conversationId, false);
+    return this.mailboxService.setFavorite(user, conversationId, false);
   }
 }

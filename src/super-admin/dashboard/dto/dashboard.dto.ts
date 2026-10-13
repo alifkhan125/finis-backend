@@ -1,4 +1,12 @@
-import { IsOptional, IsInt, Min, IsEnum, IsDateString, IsString, Max } from 'class-validator';
+import {
+  IsOptional,
+  IsInt,
+  Min,
+  IsEnum,
+  IsDateString,
+  IsString,
+  Max,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class DashboardQueryDto {
@@ -52,9 +60,7 @@ export class SuperAdminDashboardQueryDto {
   endDate?: string;
 }
 
-
 // ─── Add these DTOs to your existing dashboard.dto.ts ─────────────────────────
-
 
 export class PaginationQueryDto {
   @IsOptional()

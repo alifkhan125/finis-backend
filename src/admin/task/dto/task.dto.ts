@@ -72,6 +72,11 @@ export class CreateTaskDto {
   estimatedHours?: number;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  price?: number;
+
+  @IsOptional()
   @IsBoolean()
   allowSubTaskCreation?: boolean;
 }
@@ -108,6 +113,11 @@ export class UpdateTaskDto {
   estimatedHours?: number;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  price?: number;
+
+  @IsOptional()
   @IsNumber()
   actualHours?: number;
 
@@ -126,7 +136,7 @@ export class UpdateTaskDto {
 }
 
 export class UpdateTaskStatusDto {
-@IsEnum(TaskStatus)
+  @IsEnum(TaskStatus)
   status!: TaskStatus;
 }
 
@@ -170,28 +180,38 @@ export class CreateSubTaskDto {
   @IsOptional()
   @IsNumber()
   estimatedHours?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  price?: number;
 }
 
 export class UpdateSubTaskDto {
   @IsOptional()
   @IsString()
-  @Transform(({ value }) => value === '' ? undefined : value)
+  @Transform(({ value }) => (value === '' ? undefined : value))
   title?: string;
 
   @IsOptional()
   @IsString()
-  @Transform(({ value }) => value === '' ? undefined : value)
+  @Transform(({ value }) => (value === '' ? undefined : value))
   description?: string;
 
   @IsOptional()
   @IsEnum(TaskPriority)
-  @Transform(({ value }) => value === '' ? undefined : value)
+  @Transform(({ value }) => (value === '' ? undefined : value))
   priority?: TaskPriority;
 
   @IsOptional()
   @IsString()
-  @Transform(({ value }) => value === '' ? undefined : value)
+  @Transform(({ value }) => (value === '' ? undefined : value))
   dueDate?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  price?: number;
 }
 
 export class ReviewTaskDto {
@@ -208,6 +228,11 @@ export class ReviewTaskDto {
   expenseAmount?: number;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  price?: number;
+
+  @IsOptional()
   @IsString()
   note?: string;
 
@@ -221,4 +246,3 @@ export class ToggleTaskUnitCompletionDto {
   @IsBoolean()
   completed?: boolean;
 }
-

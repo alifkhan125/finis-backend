@@ -22,11 +22,12 @@ export class MessageService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
-  ) { }
+  ) {}
 
   private isDirectChatAllowed(senderRole?: string, targetRole?: string) {
     if (!senderRole || !targetRole) return false;
-    if (senderRole === 'super_admin' || targetRole === 'super_admin') return false;
+    if (senderRole === 'super_admin' || targetRole === 'super_admin')
+      return false;
 
     const allowed: Record<string, string[]> = {
       admin: ['manager', 'worker'],
@@ -88,7 +89,13 @@ export class MessageService {
             userId: true,
             role: true,
             user: {
-              select: { id: true, fullName: true, avatarUrl: true, role: true, status: true },
+              select: {
+                id: true,
+                fullName: true,
+                avatarUrl: true,
+                role: true,
+                status: true,
+              },
             },
           },
         },
@@ -122,7 +129,13 @@ export class MessageService {
       if (userRole === 'manager') {
         const owner = await this.prisma.user.findUnique({
           where: { id: project.company.ownerId },
-          select: { id: true, fullName: true, avatarUrl: true, role: true, status: true },
+          select: {
+            id: true,
+            fullName: true,
+            avatarUrl: true,
+            role: true,
+            status: true,
+          },
         });
         addContact(owner, project.id);
         for (const member of project.teamMembers) {
@@ -135,19 +148,27 @@ export class MessageService {
       if (userRole === 'worker') {
         const managerIds = [
           project.managerId,
-          ...(await this.prisma.workerManagerMap.findMany({
-            where: { workerId: userId },
-            select: { managerId: true },
-          })).map((item) => item.managerId),
+          ...(
+            await this.prisma.workerManagerMap.findMany({
+              where: { workerId: userId },
+              select: { managerId: true },
+            })
+          ).map((item) => item.managerId),
           ...project.teamMembers
             .filter((member) => member.role === 'manager')
             .map((member) => member.userId),
-        ].filter(Boolean) as string[];
+        ].filter(Boolean);
 
         const uniqueManagerIds = [...new Set(managerIds)];
         const managers = await this.prisma.user.findMany({
           where: { id: { in: uniqueManagerIds } },
-          select: { id: true, fullName: true, avatarUrl: true, role: true, status: true },
+          select: {
+            id: true,
+            fullName: true,
+            avatarUrl: true,
+            role: true,
+            status: true,
+          },
         });
 
         managers
@@ -179,20 +200,29 @@ export class MessageService {
     };
   }
 
-  private sortThreadsByLastMessage<T extends { lastMessage: { sentAt?: Date | string | null } | null }>(threads: T[]) {
+  private sortThreadsByLastMessage<
+    T extends { lastMessage: { sentAt?: Date | string | null } | null },
+  >(threads: T[]) {
     return [...threads].sort((a, b) => {
-      const aTime = a.lastMessage?.sentAt ? new Date(a.lastMessage.sentAt).getTime() : 0;
-      const bTime = b.lastMessage?.sentAt ? new Date(b.lastMessage.sentAt).getTime() : 0;
+      const aTime = a.lastMessage?.sentAt
+        ? new Date(a.lastMessage.sentAt).getTime()
+        : 0;
+      const bTime = b.lastMessage?.sentAt
+        ? new Date(b.lastMessage.sentAt).getTime()
+        : 0;
       return bTime - aTime;
     });
   }
 
-  private async getDirectThreadBlockState(thread: {
-    participants: Array<{
-      userId: string;
-      user: { id: string; role: string };
-    }>;
-  }, currentUserId: string) {
+  private async getDirectThreadBlockState(
+    thread: {
+      participants: Array<{
+        userId: string;
+        user: { id: string; role: string };
+      }>;
+    },
+    currentUserId: string,
+  ) {
     const otherParticipantIds = thread.participants
       .map((participant) => participant.userId)
       .filter((participantId) => participantId !== currentUserId);
@@ -233,7 +263,9 @@ export class MessageService {
     const filtered = contacts.filter((user) => {
       if (!search) return true;
       return [user.fullName, user.role].some((value) =>
-        String(value ?? '').toLowerCase().includes(search.toLowerCase()),
+        String(value ?? '')
+          .toLowerCase()
+          .includes(search.toLowerCase()),
       );
     });
 
@@ -276,10 +308,19 @@ export class MessageService {
   // USER — CHAT THREADS (user-to-user, no super_admin)
   // ─────────────────────────────────────────────
 
-  async getUserChatThreads(userId: string, userRole: string, query: ThreadQueryDto) {
+  async getUserChatThreads(
+    userId: string,
+    userRole: string,
+    query: ThreadQueryDto,
+  ) {
     const { search } = query;
-    const allowedContacts = await this.getProjectScopedContacts(userId, userRole);
-    const allowedContactIds = new Set(allowedContacts.map((contact) => contact.id));
+    const allowedContacts = await this.getProjectScopedContacts(
+      userId,
+      userRole,
+    );
+    const allowedContactIds = new Set(
+      allowedContacts.map((contact) => contact.id),
+    );
 
     const threads = await this.prisma.messageThread.findMany({
       where: {
@@ -306,60 +347,66 @@ export class MessageService {
 
     const filtered = await Promise.all(
       threads
-      .filter((thread) => {
-        if (thread.type === 'group' && thread.projectId) return true;
-        
-        // শুধু user-to-user thread — কোনো super_admin নেই
-        const others = thread.participants.filter((p) => p.userId !== userId);
-        return others.every((p) => {
-          if (p.user.role === 'super_admin') return false;
-          if (userRole === 'worker' && p.user.role === 'admin') {
-            return true;
-          }
-          return allowedContactIds.has(p.userId);
-        });
-      })
-      .filter((thread) => {
-        if (!search) return true;
-        if (thread.type === 'group' && thread.projectId) {
-          return (thread.name || '').toLowerCase().includes(search.toLowerCase());
-        }
-        const others = thread.participants.filter((p) => p.userId !== userId);
-        const name = others[0]?.user?.fullName ?? '';
-        return name.toLowerCase().includes(search.toLowerCase());
-      })
-      .map(async (thread) => {
-        const others = thread.participants.filter((p) => p.userId !== userId);
-        const unreadCount = thread.messages.filter(
-          (m) => !m.isRead && m.senderId !== userId,
-        ).length;
-        
-        let blockState = { isBlocked: false, blockedByMe: false, blockedByOther: false };
-        if (thread.type === 'direct') {
-           blockState = await this.getDirectThreadBlockState(thread, userId);
-        }
-        
-        const isProjectChat = thread.type === 'group' && thread.projectId;
-        const threadName = isProjectChat 
-          ? `Project: ${thread.name}` 
-          : (others[0]?.user?.fullName ?? 'Unknown');
-        const resolvedType = isProjectChat ? 'project' : thread.type;
+        .filter((thread) => {
+          if (thread.type === 'group' && thread.projectId) return true;
 
-        return {
-          id: thread.id,
-          type: resolvedType,
-          name: threadName,
-          isActive: thread.isActive,
-          lastMessage: thread.messages[0] ?? null,
-          unreadCount,
-          ...blockState,
-          participants: others.map((p) => ({
-            ...p.user,
-            ...this.getPresence(p.user.id, null),
-          })),
-          isReadOnly: false,
-        };
-      }),
+          // শুধু user-to-user thread — কোনো super_admin নেই
+          const others = thread.participants.filter((p) => p.userId !== userId);
+          return others.every((p) => {
+            if (p.user.role === 'super_admin') return false;
+            if (userRole === 'worker' && p.user.role === 'admin') {
+              return true;
+            }
+            return allowedContactIds.has(p.userId);
+          });
+        })
+        .filter((thread) => {
+          if (!search) return true;
+          if (thread.type === 'group' && thread.projectId) {
+            return (thread.name || '')
+              .toLowerCase()
+              .includes(search.toLowerCase());
+          }
+          const others = thread.participants.filter((p) => p.userId !== userId);
+          const name = others[0]?.user?.fullName ?? '';
+          return name.toLowerCase().includes(search.toLowerCase());
+        })
+        .map(async (thread) => {
+          const others = thread.participants.filter((p) => p.userId !== userId);
+          const unreadCount = thread.messages.filter(
+            (m) => !m.isRead && m.senderId !== userId,
+          ).length;
+
+          let blockState = {
+            isBlocked: false,
+            blockedByMe: false,
+            blockedByOther: false,
+          };
+          if (thread.type === 'direct') {
+            blockState = await this.getDirectThreadBlockState(thread, userId);
+          }
+
+          const isProjectChat = thread.type === 'group' && thread.projectId;
+          const threadName = isProjectChat
+            ? `Project: ${thread.name}`
+            : (others[0]?.user?.fullName ?? 'Unknown');
+          const resolvedType = isProjectChat ? 'project' : thread.type;
+
+          return {
+            id: thread.id,
+            type: resolvedType,
+            name: threadName,
+            isActive: thread.isActive,
+            lastMessage: thread.messages[0] ?? null,
+            unreadCount,
+            ...blockState,
+            participants: others.map((p) => ({
+              ...p.user,
+              ...this.getPresence(p.user.id, null),
+            })),
+            isReadOnly: false,
+          };
+        }),
     );
 
     return {
@@ -437,13 +484,18 @@ export class MessageService {
     let superAdminId: string;
 
     if (requester?.role === 'super_admin') {
-      if (!targetUserId) throw new BadRequestException('targetUserId is required for super_admin');
+      if (!targetUserId)
+        throw new BadRequestException(
+          'targetUserId is required for super_admin',
+        );
       const target = await this.prisma.user.findUnique({
         where: { id: targetUserId },
         select: { role: true },
       });
       if (target?.role === 'super_admin') {
-        throw new BadRequestException('Cannot create support thread with another super_admin');
+        throw new BadRequestException(
+          'Cannot create support thread with another super_admin',
+        );
       }
       userSideId = targetUserId;
       superAdminId = requesterId;
@@ -520,16 +572,25 @@ export class MessageService {
     ]);
 
     if (targetUser?.role === 'super_admin') {
-      throw new ForbiddenException('Use the Support tab to contact the administrator');
+      throw new ForbiddenException(
+        'Use the Support tab to contact the administrator',
+      );
     }
 
     if (!this.isDirectChatAllowed(sender?.role, targetUser?.role)) {
-      throw new ForbiddenException('You cannot start a direct chat with this user');
+      throw new ForbiddenException(
+        'You cannot start a direct chat with this user',
+      );
     }
 
-    const allowedContacts = await this.getProjectScopedContacts(userId, sender?.role ?? '');
+    const allowedContacts = await this.getProjectScopedContacts(
+      userId,
+      sender?.role ?? '',
+    );
     if (!allowedContacts.some((contact) => contact.id === dto.targetUserId)) {
-      throw new ForbiddenException('You can only chat with users from your assigned project');
+      throw new ForbiddenException(
+        'You can only chat with users from your assigned project',
+      );
     }
 
     if (await this.isBlockedBetween(userId, dto.targetUserId)) {
@@ -608,37 +669,47 @@ export class MessageService {
 
     const filtered = await Promise.all(
       threads
-      .filter((thread) => {
-        // Support thread = super_admin + non-super_admin participant আছে
-        const roles = thread.participants.map((p) => p.user.role);
-        return roles.includes('super_admin') && roles.some((r) => r !== 'super_admin');
-      })
-      .filter((thread) => {
-        if (!search) return true;
-        const names = thread.participants.map((p) => p.user.fullName).join(' ');
-        return names.toLowerCase().includes(search.toLowerCase());
-      })
-      .map(async (thread) => {
-        const others = thread.participants.filter((p) => p.userId !== adminId);
-        const unreadCount = thread.messages.filter(
-          (m) => !m.isRead && m.senderId !== adminId,
-        ).length;
-        const blockState = await this.getDirectThreadBlockState(thread, adminId);
-        return {
-          id: thread.id,
-          type: thread.type,
-          name: others[0]?.user?.fullName ?? 'Unknown',
-          isActive: thread.isActive,
-          lastMessage: thread.messages[0] ?? null,
-          unreadCount,
-          ...blockState,
-          participants: others.map((p) => ({
-            ...p.user,
-            ...this.getPresence(p.user.id, null),
-          })),
-          isReadOnly: false,
-        };
-      }),
+        .filter((thread) => {
+          // Support thread = super_admin + non-super_admin participant আছে
+          const roles = thread.participants.map((p) => p.user.role);
+          return (
+            roles.includes('super_admin') &&
+            roles.some((r) => r !== 'super_admin')
+          );
+        })
+        .filter((thread) => {
+          if (!search) return true;
+          const names = thread.participants
+            .map((p) => p.user.fullName)
+            .join(' ');
+          return names.toLowerCase().includes(search.toLowerCase());
+        })
+        .map(async (thread) => {
+          const others = thread.participants.filter(
+            (p) => p.userId !== adminId,
+          );
+          const unreadCount = thread.messages.filter(
+            (m) => !m.isRead && m.senderId !== adminId,
+          ).length;
+          const blockState = await this.getDirectThreadBlockState(
+            thread,
+            adminId,
+          );
+          return {
+            id: thread.id,
+            type: thread.type,
+            name: others[0]?.user?.fullName ?? 'Unknown',
+            isActive: thread.isActive,
+            lastMessage: thread.messages[0] ?? null,
+            unreadCount,
+            ...blockState,
+            participants: others.map((p) => ({
+              ...p.user,
+              ...this.getPresence(p.user.id, null),
+            })),
+            isReadOnly: false,
+          };
+        }),
     );
 
     return {
@@ -682,17 +753,18 @@ export class MessageService {
       .filter((thread) => {
         if (!search) return true;
         const isProjectChat = thread.type === 'group' && thread.projectId;
-        const names = isProjectChat && thread.name 
-          ? thread.name 
-          : thread.participants.map((p) => p.user.fullName).join(' ');
+        const names =
+          isProjectChat && thread.name
+            ? thread.name
+            : thread.participants.map((p) => p.user.fullName).join(' ');
         return names.toLowerCase().includes(search.toLowerCase());
       })
       .map((thread) => {
         const isProjectChat = thread.type === 'group' && thread.projectId;
-        const threadName = isProjectChat 
-          ? `Project: ${thread.name}` 
+        const threadName = isProjectChat
+          ? `Project: ${thread.name}`
           : thread.participants.map((p) => p.user.fullName).join(', ');
-          
+
         const participants = thread.participants.map((p) => ({
           ...p.user,
           ...this.getPresence(p.user.id, null),
@@ -747,7 +819,9 @@ export class MessageService {
     const roles = thread.participants.map((p) => p.user.role);
     const isChatThread = !roles.includes('super_admin');
     if (!isChatThread) {
-      throw new ForbiddenException('This endpoint is only for read-only chat threads');
+      throw new ForbiddenException(
+        'This endpoint is only for read-only chat threads',
+      );
     }
 
     const messages = await this.prisma.message.findMany({
@@ -814,7 +888,8 @@ export class MessageService {
     const isParticipant = await this.prisma.threadParticipant.findUnique({
       where: { threadId_userId: { threadId, userId } },
     });
-    if (!isParticipant) throw new ForbiddenException('You are not a participant of this thread');
+    if (!isParticipant)
+      throw new ForbiddenException('You are not a participant of this thread');
 
     const page = Math.max(1, Number(query.page ?? 1));
     const limit = Math.max(1, Number(query.limit ?? 20));
@@ -871,7 +946,8 @@ export class MessageService {
     const isParticipant = await this.prisma.threadParticipant.findUnique({
       where: { threadId_userId: { threadId, userId: senderId } },
     });
-    if (!isParticipant) throw new ForbiddenException('You are not a participant of this thread');
+    if (!isParticipant)
+      throw new ForbiddenException('You are not a participant of this thread');
 
     const sender = await this.prisma.user.findUnique({
       where: { id: senderId },
@@ -891,31 +967,41 @@ export class MessageService {
     let otherParticipantIds = thread.participants
       .filter((p) => p.userId !== senderId)
       .map((p) => p.userId);
-    let otherParticipants = thread.participants.filter((p) => p.userId !== senderId);
+    let otherParticipants = thread.participants.filter(
+      (p) => p.userId !== senderId,
+    );
     let otherRoles = otherParticipants.map((p) => p.user.role);
-    const isSupportThread = otherRoles.includes('super_admin') || sender?.role === 'super_admin';
+    const isSupportThread =
+      otherRoles.includes('super_admin') || sender?.role === 'super_admin';
 
     if (otherRoles.includes('super_admin') && !isSupportThread) {
       if (sender?.role === 'super_admin') {
-        throw new ForbiddenException('Super admin can only send messages in Support threads');
+        throw new ForbiddenException(
+          'Super admin can only send messages in Support threads',
+        );
       }
 
       thread = await this.getOrCreateSupportThread(senderId);
       otherParticipantIds = thread.participants
         .filter((p) => p.userId !== senderId)
         .map((p) => p.userId);
-      otherParticipants = thread.participants.filter((p) => p.userId !== senderId);
+      otherParticipants = thread.participants.filter(
+        (p) => p.userId !== senderId,
+      );
       otherRoles = otherParticipants.map((p) => p.user.role);
     }
 
-    const effectiveIsSupportThread = otherRoles.includes('super_admin') || sender?.role === 'super_admin';
+    const effectiveIsSupportThread =
+      otherRoles.includes('super_admin') || sender?.role === 'super_admin';
 
     if (sender?.role === 'worker' && !effectiveIsSupportThread) {
       const hasAdminParticipant = otherRoles.includes('admin');
       const hasManagerParticipant = otherRoles.includes('manager');
 
       if (!hasManagerParticipant && !hasAdminParticipant) {
-        throw new ForbiddenException('Workers can only chat with managers or admins');
+        throw new ForbiddenException(
+          'Workers can only chat with managers or admins',
+        );
       }
     }
 
@@ -932,14 +1018,13 @@ export class MessageService {
       throw new NotFoundException('Thread not found');
     }
 
-
     const message = await this.prisma.message.create({
       data: {
         threadId: effectiveThread.id,
         senderId,
         content: content ?? null,
         mediaUrl: finalMediaUrl,
-        mediaType: mediaType === 'location' ? null : mediaType ?? null,
+        mediaType: mediaType === 'location' ? null : (mediaType ?? null),
         isRead: false,
       },
 
@@ -959,7 +1044,9 @@ export class MessageService {
     );
     return {
       message,
-      participantIds: effectiveThread.participants.map((participant) => participant.userId),
+      participantIds: effectiveThread.participants.map(
+        (participant) => participant.userId,
+      ),
       threadId: effectiveThread.id,
     };
   }
@@ -980,7 +1067,8 @@ export class MessageService {
     const isParticipant = await this.prisma.threadParticipant.findUnique({
       where: { threadId_userId: { threadId, userId: adminId } },
     });
-    if (!isParticipant) throw new ForbiddenException('You are not a participant of this thread');
+    if (!isParticipant)
+      throw new ForbiddenException('You are not a participant of this thread');
 
     // Thread টা support thread কিনা verify
     const thread = await this.prisma.messageThread.findUnique({
@@ -992,17 +1080,22 @@ export class MessageService {
       },
     });
 
-    const otherParticipants = thread?.participants.filter((p) => p.userId !== adminId);
-    const isSupportThread = otherParticipants?.some((p) => p.user.role !== 'super_admin');
+    const otherParticipants = thread?.participants.filter(
+      (p) => p.userId !== adminId,
+    );
+    const isSupportThread = otherParticipants?.some(
+      (p) => p.user.role !== 'super_admin',
+    );
 
     if (!isSupportThread) {
-      throw new ForbiddenException('Super admin can only send messages in Support threads');
+      throw new ForbiddenException(
+        'Super admin can only send messages in Support threads',
+      );
     }
 
     if (!thread) {
       throw new NotFoundException('Thread not found');
     }
-
 
     const message = await this.prisma.message.create({
       data: {
@@ -1010,7 +1103,7 @@ export class MessageService {
         senderId: adminId,
         content: content ?? null,
         mediaUrl: finalMediaUrl,
-        mediaType: mediaType === 'location' ? null : mediaType ?? null,
+        mediaType: mediaType === 'location' ? null : (mediaType ?? null),
         isRead: false,
       },
       include: {
@@ -1025,7 +1118,7 @@ export class MessageService {
       adminId,
       'New message',
       message.content ?? (locationUrl ? 'Shared a location' : ''),
-      thread!.participants.map((participant) => participant.userId),
+      thread.participants.map((participant) => participant.userId),
     );
     return message;
   }
@@ -1036,8 +1129,14 @@ export class MessageService {
     }
 
     const [blocker, target] = await Promise.all([
-      this.prisma.user.findUnique({ where: { id: blockerId }, select: { role: true } }),
-      this.prisma.user.findUnique({ where: { id: dto.targetUserId }, select: { role: true } }),
+      this.prisma.user.findUnique({
+        where: { id: blockerId },
+        select: { role: true },
+      }),
+      this.prisma.user.findUnique({
+        where: { id: dto.targetUserId },
+        select: { role: true },
+      }),
     ]);
 
     if (!this.canBlockTarget(blocker?.role, target?.role)) {
@@ -1119,7 +1218,13 @@ export class MessageService {
       where: { blockerId: userId },
       include: {
         blockedUser: {
-          select: { id: true, fullName: true, avatarUrl: true, role: true, status: true },
+          select: {
+            id: true,
+            fullName: true,
+            avatarUrl: true,
+            role: true,
+            status: true,
+          },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -1135,7 +1240,8 @@ export class MessageService {
     preview: string,
     recipientIds?: string[],
   ) {
-    const recipients = recipientIds?.filter((userId) => userId !== senderId) ?? [];
+    const recipients =
+      recipientIds?.filter((userId) => userId !== senderId) ?? [];
 
     await Promise.all(
       recipients.map((recipient) =>
@@ -1156,7 +1262,9 @@ export class MessageService {
   // ─────────────────────────────────────────────
 
   async closeThread(threadId: string) {
-    const thread = await this.prisma.messageThread.findUnique({ where: { id: threadId } });
+    const thread = await this.prisma.messageThread.findUnique({
+      where: { id: threadId },
+    });
     if (!thread) throw new NotFoundException('Thread not found');
     return this.prisma.messageThread.update({
       where: { id: threadId },
@@ -1193,9 +1301,12 @@ export class MessageService {
   // ─────────────────────────────────────────────
 
   async deleteMessage(messageId: string, userId: string) {
-    const message = await this.prisma.message.findUnique({ where: { id: messageId } });
+    const message = await this.prisma.message.findUnique({
+      where: { id: messageId },
+    });
     if (!message) throw new NotFoundException('Message not found');
-    if (message.senderId !== userId) throw new ForbiddenException('Cannot delete others messages');
+    if (message.senderId !== userId)
+      throw new ForbiddenException('Cannot delete others messages');
     await this.prisma.message.delete({ where: { id: messageId } });
     return { message: 'Message deleted' };
   }

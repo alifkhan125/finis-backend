@@ -1,12 +1,28 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { TimeAdjustmentType, TimeAdjustmentStatus } from '../generated/prisma/client';
+import {
+  TimeAdjustmentType,
+  TimeAdjustmentStatus,
+} from '../generated/prisma/client';
 
 @Injectable()
 export class TimeAdjustmentsService {
   constructor(private prisma: PrismaService) {}
 
-  async createRequest(workerId: string, data: { date: string; requestType: 'check_in' | 'check_out'; originalTime: string; adjustedTime: string; reason?: string }) {
+  async createRequest(
+    workerId: string,
+    data: {
+      date: string;
+      requestType: 'check_in' | 'check_out';
+      originalTime: string;
+      adjustedTime: string;
+      reason?: string;
+    },
+  ) {
     return this.prisma.timeAdjustmentRequest.create({
       data: {
         workerId,
@@ -20,12 +36,30 @@ export class TimeAdjustmentsService {
   }
 
   async getAllRequests(user?: any, status?: string) {
-    const whereClause: any = status ? { status } : {};
+    const whereClause: any = {};
+
+    if (status && status !== 'all') {
+      whereClause.status = status;
+    }
+
+    if (user && user.role !== 'super_admin') {
+      if (user.role === 'worker') {
+        whereClause.workerId = user.id;
+      } else if (user.tenantId) {
+        whereClause.worker = { tenantId: user.tenantId };
+      }
+    }
+
     return this.prisma.timeAdjustmentRequest.findMany({
       where: whereClause,
       include: {
         worker: {
-          select: { id: true, fullName: true, employeeId: true, avatarUrl: true },
+          select: {
+            id: true,
+            fullName: true,
+            employeeId: true,
+            avatarUrl: true,
+          },
         },
       },
       orderBy: { submittedAt: 'desc' },
@@ -33,24 +67,38 @@ export class TimeAdjustmentsService {
   }
 
   async getPendingRequests(user?: any) {
-    return this.getAllRequests(user);
+    return this.getAllRequests(user, 'pending');
   }
 
-  async updateRequestStatus(id: string, status: 'approved' | 'denied', reviewedBy: string) {
-    const request = await this.prisma.timeAdjustmentRequest.findUnique({ where: { id } });
+  async updateRequestStatus(
+    id: string,
+    status: string | undefined,
+    reviewedBy: string,
+  ) {
+    const request = await this.prisma.timeAdjustmentRequest.findUnique({
+      where: { id },
+    });
     if (!request) throw new NotFoundException('Request not found');
-    if (request.status !== 'pending') throw new BadRequestException('Request is not pending');
+
+    if (request.status !== 'pending') return request;
+
+    const normalizedStatus =
+      status === 'rejected' || status === 'reject' ? 'denied' : status;
+
+    if (!['approved', 'denied'].includes(normalizedStatus ?? '')) {
+      throw new BadRequestException('Valid status is required');
+    }
 
     const updated = await this.prisma.timeAdjustmentRequest.update({
       where: { id },
       data: {
-        status: status as TimeAdjustmentStatus,
+        status: normalizedStatus as TimeAdjustmentStatus,
         reviewedBy,
         reviewedAt: new Date(),
       },
     });
 
-    if (status === 'approved') {
+    if (normalizedStatus === 'approved') {
       const isSingleDay = request.reason?.includes('[Scope: single_day]');
       const reqDateStr = request.date.toISOString().split('T')[0];
 
@@ -83,16 +131,28 @@ export class TimeAdjustmentsService {
           await this.prisma.attendanceSession.update({
             where: { id: session.id },
             data: {
-              checkInTime: request.requestType === 'check_in' ? request.adjustedTime : session.checkInTime,
-              checkOutTime: request.requestType === 'check_out' ? request.adjustedTime : session.checkOutTime,
+              checkInTime:
+                request.requestType === 'check_in'
+                  ? request.adjustedTime
+                  : session.checkInTime,
+              checkOutTime:
+                request.requestType === 'check_out'
+                  ? request.adjustedTime
+                  : session.checkOutTime,
             },
           });
         } else {
           await this.prisma.attendanceSession.create({
             data: {
               attendanceId: attendance.id,
-              checkInTime: request.requestType === 'check_in' ? request.adjustedTime : request.originalTime,
-              checkOutTime: request.requestType === 'check_out' ? request.adjustedTime : null,
+              checkInTime:
+                request.requestType === 'check_in'
+                  ? request.adjustedTime
+                  : request.originalTime,
+              checkOutTime:
+                request.requestType === 'check_out'
+                  ? request.adjustedTime
+                  : null,
             },
           });
         }
@@ -119,7 +179,7 @@ export class TimeAdjustmentsService {
           where: { userId: request.workerId },
           include: { schedule: true },
         });
-        
+
         if (assignment && assignment.schedule) {
           const matchTime = request.reason?.match(/\[Time:\s*([^\]]+)\]/);
           let timeStr = matchTime ? matchTime[1].trim() : null;
@@ -133,8 +193,14 @@ export class TimeAdjustmentsService {
             timeStr = `${hrs12.toString().padStart(2, '0')}:${minsStr} ${ampm}`;
           }
 
-          const newStartTime = request.requestType === 'check_in' ? timeStr : assignment.schedule.startTime;
-          const newEndTime = request.requestType === 'check_out' ? timeStr : assignment.schedule.endTime;
+          const newStartTime =
+            request.requestType === 'check_in'
+              ? timeStr
+              : assignment.schedule.startTime;
+          const newEndTime =
+            request.requestType === 'check_out'
+              ? timeStr
+              : assignment.schedule.endTime;
 
           const newSchedule = await this.prisma.workSchedule.create({
             data: {
@@ -142,13 +208,13 @@ export class TimeAdjustmentsService {
               name: `${newStartTime} - ${newEndTime} (Adjusted)`,
               startTime: newStartTime,
               endTime: newEndTime,
-              days: assignment.schedule.days
-            }
+              days: assignment.schedule.days,
+            },
           });
 
           await this.prisma.workScheduleAssignment.update({
             where: { id: assignment.id },
-            data: { scheduleId: newSchedule.id }
+            data: { scheduleId: newSchedule.id },
           });
         }
       }

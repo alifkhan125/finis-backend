@@ -85,7 +85,10 @@ export class SubscriptionService {
       if (priceId) {
         try {
           const existing = await this.stripe.prices.retrieve(priceId);
-          if (existing?.recurring?.interval === interval && existing?.active !== false) {
+          if (
+            existing?.recurring?.interval === interval &&
+            existing?.active !== false
+          ) {
             return existing.id;
           }
         } catch {
@@ -126,7 +129,8 @@ export class SubscriptionService {
   // ─── Plan / Tenant Helpers ───────────────────────────────────────────────────
 
   private resolvePlanAmount(plan: any, interval: string): number {
-    if (interval === 'yearly') return plan?.priceYearly ?? plan?.priceMonthly ?? 0;
+    if (interval === 'yearly')
+      return plan?.priceYearly ?? plan?.priceMonthly ?? 0;
     return plan?.priceMonthly ?? 0;
   }
 
@@ -143,7 +147,10 @@ export class SubscriptionService {
   }
 
   private resolvePlanIntervalFromStripePrice(
-    plan: { stripePriceMonthlyId: string | null; stripePriceYearlyId: string | null } | null,
+    plan: {
+      stripePriceMonthlyId: string | null;
+      stripePriceYearlyId: string | null;
+    } | null,
     stripePriceId: string | null,
   ): 'monthly' | 'yearly' | null {
     if (!plan || !stripePriceId) return null;
@@ -193,8 +200,15 @@ export class SubscriptionService {
     canceledAt?: Date | null;
   }) {
     const where = params.stripeSubscriptionId
-      ? { tenantId: params.tenantId, stripeSubscriptionId: params.stripeSubscriptionId }
-      : { tenantId: params.tenantId, planId: params.planId, interval: params.interval };
+      ? {
+          tenantId: params.tenantId,
+          stripeSubscriptionId: params.stripeSubscriptionId,
+        }
+      : {
+          tenantId: params.tenantId,
+          planId: params.planId,
+          interval: params.interval,
+        };
 
     const existing = await this.prisma.subscriptionPurchase.findFirst({
       where,
@@ -235,10 +249,16 @@ export class SubscriptionService {
   /**
    * Stripe থেকে latest subscription data pull করে DB sync করে।
    */
-  private async syncTenantFromStripeSubscription(subscriptionId: string, knownTenantId?: string) {
-    const subscription = await this.stripe.subscriptions.retrieve(subscriptionId, {
-      expand: ['latest_invoice.lines'],
-    });
+  private async syncTenantFromStripeSubscription(
+    subscriptionId: string,
+    knownTenantId?: string,
+  ) {
+    const subscription = await this.stripe.subscriptions.retrieve(
+      subscriptionId,
+      {
+        expand: ['latest_invoice.lines'],
+      },
+    );
     const stripeStatus = subscription.status;
     const isActive = stripeStatus === 'active' || stripeStatus === 'trialing';
 
@@ -271,12 +291,18 @@ export class SubscriptionService {
 
     const period = this.getSubscriptionPeriod(subscription);
     const matchedPlan = await this.resolvePlanFromStripePrice(stripePriceId);
-    const matchedInterval = this.resolvePlanIntervalFromStripePrice(matchedPlan, stripePriceId);
+    const matchedInterval = this.resolvePlanIntervalFromStripePrice(
+      matchedPlan,
+      stripePriceId,
+    );
 
     const startDate = period.start ? new Date(period.start * 1000) : new Date();
     const endDate = period.end
       ? new Date(period.end * 1000)
-      : new Date(Date.now() + (matchedInterval === 'yearly' ? 365 : 30) * 24 * 60 * 60 * 1000);
+      : new Date(
+          Date.now() +
+            (matchedInterval === 'yearly' ? 365 : 30) * 24 * 60 * 60 * 1000,
+        );
 
     await this.prisma.tenant.update({
       where: { id: tenant.id },
@@ -293,7 +319,8 @@ export class SubscriptionService {
     });
 
     const effectivePlan = matchedPlan ?? tenant.plan;
-    const effectiveInterval = matchedInterval ?? tenant.planInterval ?? 'monthly';
+    const effectiveInterval =
+      matchedInterval ?? tenant.planInterval ?? 'monthly';
     const amount = this.resolvePlanAmount(effectivePlan, effectiveInterval);
 
     const adminUser =
@@ -313,7 +340,12 @@ export class SubscriptionService {
         stripePriceId,
         interval: effectiveInterval,
         amount,
-        status: stripeStatus === 'canceled' ? 'canceled' : isActive ? 'active' : 'expired',
+        status:
+          stripeStatus === 'canceled'
+            ? 'canceled'
+            : isActive
+              ? 'active'
+              : 'expired',
         startedAt: startDate,
         endedAt: endDate,
       });
@@ -339,18 +371,25 @@ export class SubscriptionService {
     // Verify target subscription is still valid
     let targetSub: any;
     try {
-      targetSub = await this.stripe.subscriptions.retrieve(targetSubscriptionId);
+      targetSub =
+        await this.stripe.subscriptions.retrieve(targetSubscriptionId);
     } catch {
-      throw new BadRequestException('Previous subscription could not be verified with Stripe');
+      throw new BadRequestException(
+        'Previous subscription could not be verified with Stripe',
+      );
     }
 
     if (targetSub.status !== 'active' && targetSub.status !== 'trialing') {
-      throw new BadRequestException('That plan is no longer active. Please purchase it again.');
+      throw new BadRequestException(
+        'That plan is no longer active. Please purchase it again.',
+      );
     }
 
     const period = this.getSubscriptionPeriod(targetSub);
     if (period.end && period.end * 1000 < Date.now()) {
-      throw new BadRequestException('That plan has already expired. Please purchase it again.');
+      throw new BadRequestException(
+        'That plan has already expired. Please purchase it again.',
+      );
     }
 
     // resume করো যদি cancel_at_period_end ছিল
@@ -361,14 +400,20 @@ export class SubscriptionService {
     }
 
     // current active subscription টা period end-এ cancel করো
-    if (tenant.stripeSubscriptionId && tenant.stripeSubscriptionId !== targetSubscriptionId) {
+    if (
+      tenant.stripeSubscriptionId &&
+      tenant.stripeSubscriptionId !== targetSubscriptionId
+    ) {
       await this.stripe.subscriptions.update(tenant.stripeSubscriptionId, {
         cancel_at_period_end: true,
       });
 
       // current purchase কে "switched" mark করো
       const currentPurchase = await this.prisma.subscriptionPurchase.findFirst({
-        where: { tenantId: tenant.id, stripeSubscriptionId: tenant.stripeSubscriptionId },
+        where: {
+          tenantId: tenant.id,
+          stripeSubscriptionId: tenant.stripeSubscriptionId,
+        },
       });
       if (currentPurchase) {
         await this.prisma.subscriptionPurchase.update({
@@ -392,7 +437,9 @@ export class SubscriptionService {
         stripePriceId: stripePriceId ?? undefined,
         subscriptionStatus: 'active',
         status: 'active',
-        currentPeriodStart: period.start ? new Date(period.start * 1000) : undefined,
+        currentPeriodStart: period.start
+          ? new Date(period.start * 1000)
+          : undefined,
         currentPeriodEnd: period.end ? new Date(period.end * 1000) : undefined,
       },
     });
@@ -421,7 +468,8 @@ export class SubscriptionService {
     return {
       switched: true,
       checkoutUrl: null,
-      message: 'Switched back to previously paid plan. No new payment required.',
+      message:
+        'Switched back to previously paid plan. No new payment required.',
       tenantId: tenant.id,
       planId: plan.id,
     };
@@ -436,7 +484,10 @@ export class SubscriptionService {
     });
     if (!user) throw new NotFoundException('Admin user not found');
 
-    const isPasswordValid = await bcrypt.compare(dto.password, user.passwordHash);
+    const isPasswordValid = await bcrypt.compare(
+      dto.password,
+      user.passwordHash,
+    );
     if (!isPasswordValid) throw new ForbiddenException('Invalid credentials');
 
     // 2. Plan verify
@@ -444,7 +495,8 @@ export class SubscriptionService {
       where: { id: dto.planId },
     });
     if (!plan) throw new NotFoundException('Subscription plan not found');
-    if (!plan.isActive) throw new BadRequestException('This plan is not currently available');
+    if (!plan.isActive)
+      throw new BadRequestException('This plan is not currently available');
 
     // 3. Tenant
     const tenant = user.tenantId
@@ -471,16 +523,18 @@ export class SubscriptionService {
 
       // 5. Check করো আগের কেনা subscription আছে কিনা যেটার duration এখনো বাকি
       //    (different plan বা interval হতে পারে — ager ta te back jaowa)
-      const previousPurchase = await this.prisma.subscriptionPurchase.findFirst({
-        where: {
-          tenantId: tenant.id,
-          planId: plan.id,
-          interval: dto.interval,
-          status: 'active',
-          stripeSubscriptionId: { not: null },
-          endedAt: { gt: new Date() },
+      const previousPurchase = await this.prisma.subscriptionPurchase.findFirst(
+        {
+          where: {
+            tenantId: tenant.id,
+            planId: plan.id,
+            interval: dto.interval,
+            status: 'active',
+            stripeSubscriptionId: { not: null },
+            endedAt: { gt: new Date() },
+          },
         },
-      });
+      );
 
       if (previousPurchase?.stripeSubscriptionId) {
         // আগের plan-এ ফেরত — কোনো payment নেই
@@ -524,7 +578,9 @@ export class SubscriptionService {
         : syncedPlan.stripePriceMonthlyId;
 
     if (!priceId) {
-      throw new BadRequestException('Stripe price not configured for this plan');
+      throw new BadRequestException(
+        'Stripe price not configured for this plan',
+      );
     }
 
     // 9. Stripe Checkout session
@@ -550,7 +606,9 @@ export class SubscriptionService {
         stripeCustomerId: customer.id,
         stripePriceId: priceId,
         planInterval: dto.interval,
-        ...(user.tenantId == null ? { users: { connect: { id: user.id } } } : {}),
+        ...(user.tenantId == null
+          ? { users: { connect: { id: user.id } } }
+          : {}),
       },
     });
 
@@ -571,7 +629,10 @@ export class SubscriptionService {
     });
     if (!user) throw new NotFoundException('Admin user not found');
 
-    const isPasswordValid = await bcrypt.compare(dto.password, user.passwordHash);
+    const isPasswordValid = await bcrypt.compare(
+      dto.password,
+      user.passwordHash,
+    );
     if (!isPasswordValid) throw new ForbiddenException('Invalid credentials');
 
     // 2. Plan verify
@@ -579,7 +640,8 @@ export class SubscriptionService {
       where: { id: dto.planId },
     });
     if (!plan) throw new NotFoundException('Subscription plan not found');
-    if (!plan.isActive) throw new BadRequestException('This plan is not currently available');
+    if (!plan.isActive)
+      throw new BadRequestException('This plan is not currently available');
 
     // 3. Tenant check
     const tenant = user.tenantId
@@ -635,7 +697,9 @@ export class SubscriptionService {
         : syncedPlan.stripePriceMonthlyId;
 
     if (!priceId) {
-      throw new BadRequestException('Stripe price not configured for this plan');
+      throw new BadRequestException(
+        'Stripe price not configured for this plan',
+      );
     }
 
     // 7. Create Stripe subscription with default_incomplete
@@ -661,7 +725,9 @@ export class SubscriptionService {
     if (invoice && typeof invoice === 'object') {
       if (typeof invoice.payment_intent === 'string') {
         try {
-          const pi = await this.stripe.paymentIntents.retrieve(invoice.payment_intent);
+          const pi = await this.stripe.paymentIntents.retrieve(
+            invoice.payment_intent,
+          );
           clientSecret = pi.client_secret ?? undefined;
         } catch {
           // ignore
@@ -682,7 +748,7 @@ export class SubscriptionService {
           (pi: any) =>
             pi.status === 'requires_payment_method' ||
             pi.status === 'requires_action' ||
-            pi.status === 'requires_confirmation'
+            pi.status === 'requires_confirmation',
         );
         if (matchedPi?.client_secret) {
           clientSecret = matchedPi.client_secret;
@@ -697,7 +763,9 @@ export class SubscriptionService {
       try {
         const setupIntent =
           typeof subscription.pending_setup_intent === 'string'
-            ? await this.stripe.setupIntents.retrieve(subscription.pending_setup_intent)
+            ? await this.stripe.setupIntents.retrieve(
+                subscription.pending_setup_intent,
+              )
             : subscription.pending_setup_intent;
         clientSecret = setupIntent?.client_secret ?? undefined;
       } catch (err) {
@@ -706,7 +774,9 @@ export class SubscriptionService {
     }
 
     if (!clientSecret) {
-      throw new BadRequestException('Could not create payment intent for subscription');
+      throw new BadRequestException(
+        'Could not create payment intent for subscription',
+      );
     }
 
     // Save customer + subscription reference on tenant
@@ -717,7 +787,9 @@ export class SubscriptionService {
         stripePriceId: priceId,
         planInterval: dto.interval,
         stripeSubscriptionId: subscription.id,
-        ...(user.tenantId == null ? { users: { connect: { id: user.id } } } : {}),
+        ...(user.tenantId == null
+          ? { users: { connect: { id: user.id } } }
+          : {}),
       },
     });
 
@@ -736,7 +808,8 @@ export class SubscriptionService {
   }
 
   async confirmInAppSubscription(subscriptionId: string) {
-    const updatedTenant = await this.syncTenantFromStripeSubscription(subscriptionId);
+    const updatedTenant =
+      await this.syncTenantFromStripeSubscription(subscriptionId);
     return {
       success: true,
       tenant: updatedTenant,
@@ -745,11 +818,16 @@ export class SubscriptionService {
 
   async handleWebhook(rawBody: Buffer | undefined, signature?: string) {
     const secret = process.env.STRIPE_WEBHOOK_SECRET;
-    if (!secret) throw new BadRequestException('Stripe webhook secret is missing');
+    if (!secret)
+      throw new BadRequestException('Stripe webhook secret is missing');
     if (!signature) throw new BadRequestException('Missing Stripe signature');
     if (!rawBody) throw new BadRequestException('Missing raw request body');
 
-    const event = this.stripe.webhooks.constructEvent(rawBody, signature, secret);
+    const event = this.stripe.webhooks.constructEvent(
+      rawBody,
+      signature,
+      secret,
+    );
     console.log('[Webhook]', event.type);
 
     switch (event.type) {
@@ -767,7 +845,9 @@ export class SubscriptionService {
       case 'invoice_payment.paid': {
         const invoicePayment = event.data.object as any;
         if (invoicePayment?.invoice) {
-          const invoice = await this.stripe.invoices.retrieve(invoicePayment.invoice);
+          const invoice = await this.stripe.invoices.retrieve(
+            invoicePayment.invoice,
+          );
           await this.handleInvoicePaid(invoice);
         }
         break;
@@ -814,7 +894,13 @@ export class SubscriptionService {
   }
 
   private async handleCheckoutCompleted(session: any) {
-    const { tenantId, planId, adminUserId, interval = 'monthly', priceId } = session.metadata ?? {};
+    const {
+      tenantId,
+      planId,
+      adminUserId,
+      interval = 'monthly',
+      priceId,
+    } = session.metadata ?? {};
     if (!planId || !adminUserId) return;
 
     const subscriptionId =
@@ -823,7 +909,9 @@ export class SubscriptionService {
         : (session.subscription?.id ?? null);
 
     const customerId =
-      typeof session.customer === 'string' ? session.customer : (session.customer?.id ?? null);
+      typeof session.customer === 'string'
+        ? session.customer
+        : (session.customer?.id ?? null);
 
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
@@ -834,11 +922,15 @@ export class SubscriptionService {
     });
 
     if (!tenant) {
-      console.warn('[Webhook] checkout.session.completed — tenant not found', { tenantId });
+      console.warn('[Webhook] checkout.session.completed — tenant not found', {
+        tenantId,
+      });
       return;
     }
 
-    const plan = await this.prisma.subscriptionPlan.findUnique({ where: { id: planId } });
+    const plan = await this.prisma.subscriptionPlan.findUnique({
+      where: { id: planId },
+    });
     const user = await this.prisma.user.findUnique({
       where: { id: adminUserId },
       select: { id: true },
@@ -858,8 +950,11 @@ export class SubscriptionService {
         stripeCustomerId: customerId ?? undefined,
         stripeSubscriptionId: subscriptionId ?? undefined,
         stripePriceId: priceId ?? undefined,
-        subscriptionStatus: session.payment_status === 'paid' ? 'active' : 'pending',
-        currentPeriodStart: period.start ? new Date(period.start * 1000) : undefined,
+        subscriptionStatus:
+          session.payment_status === 'paid' ? 'active' : 'pending',
+        currentPeriodStart: period.start
+          ? new Date(period.start * 1000)
+          : undefined,
         currentPeriodEnd: period.end ? new Date(period.end * 1000) : undefined,
       },
     });
@@ -885,7 +980,8 @@ export class SubscriptionService {
     const subscriptionId = this.getSubscriptionIdFromInvoice(invoice);
     if (!subscriptionId) return;
 
-    const subscription = await this.stripe.subscriptions.retrieve(subscriptionId);
+    const subscription =
+      await this.stripe.subscriptions.retrieve(subscriptionId);
     const period = this.getSubscriptionPeriod(subscription);
     const customerId =
       typeof subscription.customer === 'string'
@@ -897,7 +993,10 @@ export class SubscriptionService {
       (customerId ? await this.findTenantByCustomerId(customerId) : null);
 
     if (!tenant) {
-      console.warn('[Webhook] invoice.paid — tenant not found', { subscriptionId, customerId });
+      console.warn('[Webhook] invoice.paid — tenant not found', {
+        subscriptionId,
+        customerId,
+      });
       return;
     }
 
@@ -907,9 +1006,13 @@ export class SubscriptionService {
         : null;
 
     const matchedPlan = await this.resolvePlanFromStripePrice(stripePriceId);
-    const matchedInterval = this.resolvePlanIntervalFromStripePrice(matchedPlan, stripePriceId);
+    const matchedInterval = this.resolvePlanIntervalFromStripePrice(
+      matchedPlan,
+      stripePriceId,
+    );
     const effectivePlan = matchedPlan ?? tenant.plan;
-    const effectiveInterval = matchedInterval ?? tenant.planInterval ?? 'monthly';
+    const effectiveInterval =
+      matchedInterval ?? tenant.planInterval ?? 'monthly';
 
     await this.prisma.tenant.update({
       where: { id: tenant.id },
@@ -919,7 +1022,9 @@ export class SubscriptionService {
         stripePriceId: stripePriceId ?? undefined,
         planId: matchedPlan?.id ?? undefined,
         planInterval: matchedInterval ?? undefined,
-        currentPeriodStart: period.start ? new Date(period.start * 1000) : undefined,
+        currentPeriodStart: period.start
+          ? new Date(period.start * 1000)
+          : undefined,
         currentPeriodEnd: period.end ? new Date(period.end * 1000) : undefined,
       },
     });
@@ -1012,9 +1117,14 @@ export class SubscriptionService {
       tenant.currentPeriodEnd != null &&
       new Date(tenant.currentPeriodEnd).getTime() < Date.now();
 
-    const periodEnd = tenant.currentPeriodEnd ? new Date(tenant.currentPeriodEnd) : null;
+    const periodEnd = tenant.currentPeriodEnd
+      ? new Date(tenant.currentPeriodEnd)
+      : null;
     const daysLeft = periodEnd
-      ? Math.max(0, Math.ceil((periodEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+      ? Math.max(
+          0,
+          Math.ceil((periodEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
+        )
       : null;
 
     const currentPurchase = await this.prisma.subscriptionPurchase.findFirst({
@@ -1033,7 +1143,8 @@ export class SubscriptionService {
     });
 
     const isSubscriptionActive =
-      (tenant.subscriptionStatus === 'active' || tenant.status === 'active') && !isExpired;
+      (tenant.subscriptionStatus === 'active' || tenant.status === 'active') &&
+      !isExpired;
 
     const planAmount =
       currentPurchase?.amount ??
@@ -1049,7 +1160,8 @@ export class SubscriptionService {
         subscriptionStatus: tenant.subscriptionStatus ?? null,
         planInterval: currentPurchase?.interval ?? tenant.planInterval ?? null,
         amount: planAmount,
-        startDate: currentPurchase?.startedAt ?? tenant.currentPeriodStart ?? null,
+        startDate:
+          currentPurchase?.startedAt ?? tenant.currentPeriodStart ?? null,
         daysLeft: daysLeft ?? (isSubscriptionActive ? 30 : 0),
         currentPeriodEnd: tenant.currentPeriodEnd,
         isActive: isSubscriptionActive,
@@ -1091,14 +1203,17 @@ export class SubscriptionService {
       where: { id: userId },
     });
     if (!user || user.role !== 'admin' || user.status !== 'active') {
-      throw new ForbiddenException('Only active admin users can purchase subscriptions');
+      throw new ForbiddenException(
+        'Only active admin users can purchase subscriptions',
+      );
     }
 
     const plan = await this.prisma.subscriptionPlan.findUnique({
       where: { id: dto.planId },
     });
     if (!plan) throw new NotFoundException('Subscription plan not found');
-    if (!plan.isActive) throw new BadRequestException('This plan is not currently available');
+    if (!plan.isActive)
+      throw new BadRequestException('This plan is not currently available');
 
     const tenant = user.tenantId
       ? await this.prisma.tenant.findUnique({
@@ -1122,16 +1237,18 @@ export class SubscriptionService {
       }
 
       // Check if switching back to an already paid plan that is still within valid period
-      const previousPurchase = await this.prisma.subscriptionPurchase.findFirst({
-        where: {
-          tenantId: tenant.id,
-          planId: plan.id,
-          interval: dto.interval,
-          status: 'active',
-          stripeSubscriptionId: { not: null },
-          endedAt: { gt: new Date() },
+      const previousPurchase = await this.prisma.subscriptionPurchase.findFirst(
+        {
+          where: {
+            tenantId: tenant.id,
+            planId: plan.id,
+            interval: dto.interval,
+            status: 'active',
+            stripeSubscriptionId: { not: null },
+            endedAt: { gt: new Date() },
+          },
         },
-      });
+      );
 
       if (previousPurchase?.stripeSubscriptionId) {
         const switchResult = await this.switchToExistingSubscription({
@@ -1172,7 +1289,9 @@ export class SubscriptionService {
     let customer: any;
     if (activeTenant.stripeCustomerId) {
       try {
-        customer = await this.stripe.customers.retrieve(activeTenant.stripeCustomerId);
+        customer = await this.stripe.customers.retrieve(
+          activeTenant.stripeCustomerId,
+        );
       } catch {
         customer = await this.stripe.customers.create({
           email: activeTenant.billingEmail || user.email,
@@ -1210,7 +1329,9 @@ export class SubscriptionService {
         : syncedPlan.stripePriceMonthlyId;
 
     if (!priceId) {
-      throw new BadRequestException('Stripe price not configured for this plan');
+      throw new BadRequestException(
+        'Stripe price not configured for this plan',
+      );
     }
 
     // 5. Create Stripe Subscription with default_incomplete
@@ -1257,7 +1378,9 @@ export class SubscriptionService {
     if (invoice && typeof invoice === 'object') {
       if (typeof invoice.payment_intent === 'string') {
         try {
-          const pi = await this.stripe.paymentIntents.retrieve(invoice.payment_intent);
+          const pi = await this.stripe.paymentIntents.retrieve(
+            invoice.payment_intent,
+          );
           clientSecret = pi.client_secret ?? undefined;
         } catch (e) {
           console.warn('Failed to retrieve payment intent by invoice id:', e);
@@ -1276,10 +1399,12 @@ export class SubscriptionService {
         });
         const matchedPi = paymentIntents.data.find(
           (pi: any) =>
-            (invoiceId && (pi.payment_details?.order_reference === invoiceId || pi.invoice === invoiceId)) ||
+            (invoiceId &&
+              (pi.payment_details?.order_reference === invoiceId ||
+                pi.invoice === invoiceId)) ||
             pi.status === 'requires_payment_method' ||
             pi.status === 'requires_action' ||
-            pi.status === 'requires_confirmation'
+            pi.status === 'requires_confirmation',
         );
         if (matchedPi?.client_secret) {
           clientSecret = matchedPi.client_secret;
@@ -1294,7 +1419,9 @@ export class SubscriptionService {
       try {
         const setupIntent =
           typeof subscription.pending_setup_intent === 'string'
-            ? await this.stripe.setupIntents.retrieve(subscription.pending_setup_intent)
+            ? await this.stripe.setupIntents.retrieve(
+                subscription.pending_setup_intent,
+              )
             : subscription.pending_setup_intent;
         clientSecret = setupIntent.client_secret ?? undefined;
       } catch (err) {
@@ -1303,7 +1430,9 @@ export class SubscriptionService {
     }
 
     if (!clientSecret) {
-      throw new BadRequestException('Unable to generate payment client secret for subscription');
+      throw new BadRequestException(
+        'Unable to generate payment client secret for subscription',
+      );
     }
 
     await this.prisma.tenant.update({
@@ -1319,8 +1448,12 @@ export class SubscriptionService {
     return {
       requiresPayment: true,
       subscriptionId: subscription.id,
-      paymentIntentClientSecret: clientSecret.startsWith('pi_') ? clientSecret : undefined,
-      setupIntentClientSecret: clientSecret.startsWith('seti_') ? clientSecret : undefined,
+      paymentIntentClientSecret: clientSecret.startsWith('pi_')
+        ? clientSecret
+        : undefined,
+      setupIntentClientSecret: clientSecret.startsWith('seti_')
+        ? clientSecret
+        : undefined,
       customerEphemeralKeySecret: ephemeralKey.secret,
       customerId: customer.id,
       publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || '',
@@ -1340,7 +1473,9 @@ export class SubscriptionService {
       user.tenantId ?? undefined,
     );
     if (!subscription) {
-      throw new NotFoundException('Subscription sync failed or tenant not found');
+      throw new NotFoundException(
+        'Subscription sync failed or tenant not found',
+      );
     }
 
     return {
@@ -1350,4 +1485,3 @@ export class SubscriptionService {
     };
   }
 }
-

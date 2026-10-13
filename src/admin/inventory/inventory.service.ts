@@ -68,7 +68,7 @@ export class InventoryService {
     }
 
     const memberships = await this.prisma.projectMember.findMany({
-      where:  { userId: user.id },
+      where: { userId: user.id },
       select: { projectId: true },
     });
     return { id: { in: memberships.map((m) => m.projectId) } };
@@ -103,8 +103,8 @@ export class InventoryService {
   async getProjectList(user: AuthUser) {
     const scope = await this.getProjectScope(user);
     const projects = await this.prisma.project.findMany({
-      where:   scope,
-      select:  { id: true, name: true, location: true },
+      where: scope,
+      select: { id: true, name: true, location: true },
       orderBy: { name: 'asc' },
     });
 
@@ -154,13 +154,13 @@ export class InventoryService {
    *  unresolvedDamages — damage reports with status = 'unresolved'
    */
   async getSummary(user: AuthUser, projectId?: string) {
-    const scope        = await this.getProjectScope(user);
+    const scope = await this.getProjectScope(user);
     const projectWhere = this.mergeScope(scope, projectId);
     const hasProjectScope = this.hasScope(projectWhere);
 
     const [allItems, damages] = await Promise.all([
       this.prisma.inventoryItem.findMany({
-        where:  hasProjectScope ? { project: projectWhere } : {},
+        where: hasProjectScope ? { project: projectWhere } : {},
         select: { currentQty: true, minStockQty: true },
       }),
       this.prisma.inventoryDamage.count({
@@ -173,8 +173,8 @@ export class InventoryService {
       }),
     ]);
 
-    const totalProducts     = allItems.length;
-    const lowStockAlerts    = allItems.filter(
+    const totalProducts = allItems.length;
+    const lowStockAlerts = allItems.filter(
       (i) => i.currentQty <= i.minStockQty,
     ).length;
     const unresolvedDamages = damages;
@@ -196,24 +196,18 @@ export class InventoryService {
    * When lowStock=true → only low-stock rows are returned.
    */
   async getInventoryItems(user: AuthUser, query: InventoryQueryDto) {
-    const {
-      projectId,
-      search,
-      category,
-      location,
-      lowStock,
-    } = query;
+    const { projectId, search, category, location, lowStock } = query;
 
     const { page, limit, skip } = this.normalizePagination(query);
     const isLowStock = lowStock === true || (lowStock as any) === 'true';
 
-    const scope        = await this.getProjectScope(user);
+    const scope = await this.getProjectScope(user);
     const projectWhere = this.mergeScope(scope, projectId);
     const hasProjectScope = this.hasScope(projectWhere);
 
     // Build search / filter where
     const where: any = hasProjectScope ? { project: projectWhere } : {};
-    if (search)   where.name     = { contains: search,   mode: 'insensitive' };
+    if (search) where.name = { contains: search, mode: 'insensitive' };
     if (category) where.category = { contains: category, mode: 'insensitive' };
     if (location) where.location = { contains: location, mode: 'insensitive' };
 
@@ -224,7 +218,7 @@ export class InventoryService {
       include: {
         project: { select: { id: true, name: true } },
         damages: {
-          where:  { status: 'unresolved' },
+          where: { status: 'unresolved' },
           select: { id: true },
         },
       },
@@ -235,21 +229,21 @@ export class InventoryService {
       ? allItems.filter((i) => i.currentQty <= i.minStockQty)
       : allItems;
 
-    const total     = source.length;
+    const total = source.length;
     const paginated = source.slice(skip, skip + limit);
 
     const data = paginated.map((item) => ({
-      id:               item.id,
-      name:             item.name,
-      category:         item.category,
-      currentQty:       item.currentQty,
-      unit:             item.unit,
-      minStockQty:      item.minStockQty,   // "Threshold" column
-      stockStatus:      this.stockStatus(item.currentQty, item.minStockQty),
-      location:         item.location,
+      id: item.id,
+      name: item.name,
+      category: item.category,
+      currentQty: item.currentQty,
+      unit: item.unit,
+      minStockQty: item.minStockQty, // "Threshold" column
+      stockStatus: this.stockStatus(item.currentQty, item.minStockQty),
+      location: item.location,
       unresolvedDamages: item.damages.length,
-      project:          item.project,
-      updatedAt:        item.updatedAt,
+      project: item.project,
+      updatedAt: item.updatedAt,
     }));
 
     return {
@@ -268,14 +262,18 @@ export class InventoryService {
    * summary + stock items + usage + damages + project list
    * in one response for the details page.
    */
-  async getInventoryDetails(user: AuthUser, query: InventoryQueryDto & PaginationDto) {
-    const [projects, summary, inventory, usageHistory, damages] = await Promise.all([
-      this.getProjectList(user),
-      this.getSummary(user, query.projectId),
-      this.getInventoryItems(user, query),
-      this.getUsageHistory(user, query),
-      this.getDamageReports(user, query),
-    ]);
+  async getInventoryDetails(
+    user: AuthUser,
+    query: InventoryQueryDto & PaginationDto,
+  ) {
+    const [projects, summary, inventory, usageHistory, damages] =
+      await Promise.all([
+        this.getProjectList(user),
+        this.getSummary(user, query.projectId),
+        this.getInventoryItems(user, query),
+        this.getUsageHistory(user, query),
+        this.getDamageReports(user, query),
+      ]);
 
     return {
       projects,
@@ -291,12 +289,12 @@ export class InventoryService {
   // ════════════════════════════════════════════
 
   async getLowStockAlerts(user: AuthUser, projectId?: string) {
-    const scope        = await this.getProjectScope(user);
+    const scope = await this.getProjectScope(user);
     const projectWhere = this.mergeScope(scope, projectId);
     const hasProjectScope = this.hasScope(projectWhere);
 
     const items = await this.prisma.inventoryItem.findMany({
-      where:   hasProjectScope ? { project: projectWhere } : {},
+      where: hasProjectScope ? { project: projectWhere } : {},
       orderBy: { currentQty: 'asc' },
       include: { project: { select: { id: true, name: true } } },
     });
@@ -304,17 +302,17 @@ export class InventoryService {
     return items
       .filter((item) => item.currentQty <= item.minStockQty)
       .map((item) => ({
-        id:          item.id,
-        name:        item.name,
-        category:    item.category,
-        unit:        item.unit,
-        location:    item.location,
-        currentQty:  item.currentQty,
+        id: item.id,
+        name: item.name,
+        category: item.category,
+        unit: item.unit,
+        location: item.location,
+        currentQty: item.currentQty,
         minStockQty: item.minStockQty,
-        shortage:    item.minStockQty - item.currentQty,
+        shortage: item.minStockQty - item.currentQty,
         stockStatus: this.stockStatus(item.currentQty, item.minStockQty),
-        project:     item.project,
-        updatedAt:   item.updatedAt,
+        project: item.project,
+        updatedAt: item.updatedAt,
       }));
   }
 
@@ -326,7 +324,7 @@ export class InventoryService {
     const { projectId } = query;
     const { page, limit, skip } = this.normalizePagination(query);
 
-    const scope        = await this.getProjectScope(user);
+    const scope = await this.getProjectScope(user);
     const projectWhere = this.mergeScope(scope, projectId);
     const hasProjectScope = this.hasScope(projectWhere);
 
@@ -343,9 +341,9 @@ export class InventoryService {
         include: {
           inventory: {
             select: {
-              id:      true,
-              name:    true,
-              unit:    true,
+              id: true,
+              name: true,
+              unit: true,
               project: { select: { id: true, name: true } },
             },
           },
@@ -373,7 +371,7 @@ export class InventoryService {
     const { projectId } = query;
     const { page, limit, skip } = this.normalizePagination(query);
 
-    const scope        = await this.getProjectScope(user);
+    const scope = await this.getProjectScope(user);
     const projectWhere = this.mergeScope(scope, projectId);
     const hasProjectScope = this.hasScope(projectWhere);
 
@@ -383,15 +381,15 @@ export class InventoryService {
 
     const [damages, total] = await Promise.all([
       this.prisma.inventoryDamage.findMany({
-        where:   damageWhere,
+        where: damageWhere,
         orderBy: { reportedAt: 'desc' },
         skip,
         take: limit,
         include: {
           inventory: {
             select: {
-              id:      true,
-              name:    true,
+              id: true,
+              name: true,
               category: true,
               project: { select: { id: true, name: true } },
             },
@@ -420,11 +418,11 @@ export class InventoryService {
     const item = await this.prisma.inventoryItem.findFirst({
       where: { id, projectId },
       include: {
-        project:  { select: { id: true, name: true } },
-        damages:  { orderBy: { reportedAt: 'desc' } },
+        project: { select: { id: true, name: true } },
+        damages: { orderBy: { reportedAt: 'desc' } },
         usageHistory: {
           orderBy: { loggedAt: 'desc' },
-          take:    10,
+          take: 10,
         },
       },
     });
@@ -445,17 +443,17 @@ export class InventoryService {
     const project = await this.prisma.project.findUnique({
       where: { id: dto.projectId },
     });
-    if (!project) throw new NotFoundException('Project not found'); 
+    if (!project) throw new NotFoundException('Project not found');
 
     return this.prisma.inventoryItem.create({
       data: {
-        projectId:   dto.projectId,
-        name:        dto.name,
-        category:    dto.category,
-        location:    dto.location,
-        currentQty:  dto.currentQty  ?? 0,
+        projectId: dto.projectId,
+        name: dto.name,
+        category: dto.category,
+        location: dto.location,
+        currentQty: dto.currentQty ?? 0,
         minStockQty: dto.minStockQty ?? 0,
-        unit:        dto.unit,
+        unit: dto.unit,
       },
       include: { project: { select: { id: true, name: true } } },
     });
@@ -467,12 +465,12 @@ export class InventoryService {
     return this.prisma.inventoryItem.update({
       where: { id },
       data: {
-        name:        dto.name,
-        category:    dto.category,
-        location:    dto.location,
-        currentQty:  dto.currentQty,
+        name: dto.name,
+        category: dto.category,
+        location: dto.location,
+        currentQty: dto.currentQty,
         minStockQty: dto.minStockQty,
-        unit:        dto.unit,
+        unit: dto.unit,
       },
     });
   }
@@ -493,7 +491,7 @@ export class InventoryService {
     userId: string,
     dto: UpdateStockDto,
   ) {
-    const item   = await this.findOrFail(id, projectId);
+    const item = await this.findOrFail(id, projectId);
     const newQty = item.currentQty + dto.quantity;
 
     if (newQty < 0) {
@@ -505,7 +503,7 @@ export class InventoryService {
     const [updated] = await this.prisma.$transaction([
       this.prisma.inventoryItem.update({
         where: { id },
-        data:  { currentQty: newQty },
+        data: { currentQty: newQty },
       }),
       this.prisma.inventoryUsageLog.create({
         data: {
@@ -513,7 +511,7 @@ export class InventoryService {
           userId,
           projectId,
           qtyChange: dto.quantity,
-          reason:    dto.reason ?? null,
+          reason: dto.reason ?? null,
         },
       }),
     ]);
@@ -537,16 +535,16 @@ export class InventoryService {
     return this.prisma.inventoryDamage.create({
       data: {
         inventoryId: dto.inventoryId,
-        reportedBy:  userId,
+        reportedBy: userId,
         description: dto.description,
-        qtyDamaged:  dto.qtyDamaged,
-        photoUrl:    dto.photoUrl,
-        status:      'unresolved',
+        qtyDamaged: dto.qtyDamaged,
+        photoUrl: dto.photoUrl,
+        status: 'unresolved',
       },
       include: {
         inventory: {
           select: {
-            name:    true,
+            name: true,
             project: { select: { id: true, name: true } },
           },
         },
@@ -563,7 +561,7 @@ export class InventoryService {
     return this.prisma.inventoryDamage.update({
       where: { id: damageId },
       data: {
-        status:     dto.status,
+        status: dto.status,
         resolvedAt: dto.status === 'resolved' ? new Date() : null,
       },
     });
@@ -582,9 +580,9 @@ export class InventoryService {
   }
 
   private stockStatus(currentQty: number, minStockQty: number): string {
-    if (currentQty === 0)                return 'OUT_OF_STOCK';
+    if (currentQty === 0) return 'OUT_OF_STOCK';
     if (currentQty <= minStockQty * 0.5) return 'CRITICAL';
-    if (currentQty <= minStockQty)       return 'LOW_STOCK';
+    if (currentQty <= minStockQty) return 'LOW_STOCK';
     return 'IN_STOCK';
   }
 }

@@ -10,7 +10,12 @@ export class PublicContentService {
   ) {}
 
   private isMissingTableError(error: unknown) {
-    return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === 'P2021';
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error as { code?: string }).code === 'P2021'
+    );
   }
 
   async listPublishedPages() {
@@ -67,7 +72,9 @@ export class PublicContentService {
           subtitle: data.subtitle ?? null,
           body: data.body as any,
           sections: data.sections as any,
-          ...(data.isPublished !== undefined && { isPublished: data.isPublished }),
+          ...(data.isPublished !== undefined && {
+            isPublished: data.isPublished,
+          }),
         },
         create: {
           slug: data.slug,
@@ -80,7 +87,9 @@ export class PublicContentService {
       });
     } catch (error) {
       if (this.isMissingTableError(error)) {
-        throw new NotFoundException('Public content table is missing. Please run the database migration first.');
+        throw new NotFoundException(
+          'Public content table is missing. Please run the database migration first.',
+        );
       }
       throw error;
     }
@@ -91,7 +100,9 @@ export class PublicContentService {
       await (this.prisma as any).publicContentPage.delete({ where: { slug } });
     } catch (error) {
       if (this.isMissingTableError(error)) {
-        throw new NotFoundException('Public content table is missing. Please run the database migration first.');
+        throw new NotFoundException(
+          'Public content table is missing. Please run the database migration first.',
+        );
       }
       throw error;
     }
@@ -120,7 +131,9 @@ export class PublicContentService {
       });
     } catch (error) {
       if (this.isMissingTableError(error)) {
-        throw new NotFoundException('Support request table is missing. Please run the database migration first.');
+        throw new NotFoundException(
+          'Support request table is missing. Please run the database migration first.',
+        );
       }
       throw error;
     }

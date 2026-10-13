@@ -9,7 +9,7 @@ import { MailService } from './mail.service';
 
 @Module({
   imports: [
-    ConfigModule,         
+    ConfigModule,
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

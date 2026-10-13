@@ -11,7 +11,13 @@ import {
   MinLength,
 } from 'class-validator';
 
-export const REIMBURSEMENT_EXPENSE_CURRENCIES = ['BDT', 'USD', 'CAD', 'EUR', 'GBP'] as const;
+export const REIMBURSEMENT_EXPENSE_CURRENCIES = [
+  'BDT',
+  'USD',
+  'CAD',
+  'EUR',
+  'GBP',
+] as const;
 export const REIMBURSEMENT_EXPENSE_CATEGORIES = [
   'Travel',
   'Meals',

@@ -22,7 +22,9 @@ export class CloudinaryService {
         secure: true,
       });
       this.isConfigured = true;
-      this.logger.log(`Cloudinary initialized successfully for cloud: ${cloudName}`);
+      this.logger.log(
+        `Cloudinary initialized successfully for cloud: ${cloudName}`,
+      );
     } else {
       this.logger.warn('Cloudinary credentials are not fully configured');
     }
@@ -32,7 +34,10 @@ export class CloudinaryService {
     return this.isConfigured;
   }
 
-  async uploadFile(file: Express.Multer.File, folder: string = 'uploads'): Promise<string> {
+  async uploadFile(
+    file: Express.Multer.File,
+    folder: string = 'uploads',
+  ): Promise<string> {
     if (!this.isConfigured) {
       throw new Error('Cloudinary storage is not configured');
     }
@@ -67,7 +72,9 @@ export class CloudinaryService {
         (error: any, result?: UploadApiResponse) => {
           if (error || !result) {
             this.logger.error('Cloudinary upload stream error:', error);
-            return reject(error || new Error('Cloudinary upload returned empty result'));
+            return reject(
+              error || new Error('Cloudinary upload returned empty result'),
+            );
           }
           resolve(result.secure_url);
         },
@@ -88,7 +95,9 @@ export class CloudinaryService {
     try {
       // Extract public_id from Cloudinary URL
       // e.g. https://res.cloudinary.com/cloud_name/image/upload/v12345/folder/file.webp -> folder/file
-      const matches = fileUrl.match(/\/upload\/(?:v\d+\/)?(.+?)(?:\.[a-zA-Z0-9]+)?$/);
+      const matches = fileUrl.match(
+        /\/upload\/(?:v\d+\/)?(.+?)(?:\.[a-zA-Z0-9]+)?$/,
+      );
       if (!matches || !matches[1]) {
         return;
       }
@@ -97,7 +106,9 @@ export class CloudinaryService {
       await cloudinary.uploader.destroy(publicId, { resource_type: 'image' });
       await cloudinary.uploader.destroy(publicId, { resource_type: 'raw' });
     } catch (err) {
-      this.logger.warn(`Failed to delete Cloudinary file: ${err instanceof Error ? err.message : String(err)}`);
+      this.logger.warn(
+        `Failed to delete Cloudinary file: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 }

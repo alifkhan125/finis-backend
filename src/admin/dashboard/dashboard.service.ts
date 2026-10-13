@@ -7,7 +7,11 @@ import { Prisma, ProjectStatus, UserRole } from '../../generated/prisma/client';
 export class DashboardService {
   constructor(private prisma: PrismaService) {}
 
-  async getAdminDashboard(adminId: string, userRole: string, query: DashboardQueryDto) {
+  async getAdminDashboard(
+    adminId: string,
+    userRole: string,
+    query: DashboardQueryDto,
+  ) {
     const {
       projectsPage = 1,
       projectsLimit = 10,
@@ -17,12 +21,13 @@ export class DashboardService {
       invitationsLimit = 10,
     } = query;
 
-    const myCompanies = userRole === UserRole.admin
-      ? await this.prisma.company.findMany({
-          where: { ownerId: adminId, isActive: true },
-          select: { id: true },
-        })
-      : [];
+    const myCompanies =
+      userRole === UserRole.admin
+        ? await this.prisma.company.findMany({
+            where: { ownerId: adminId, isActive: true },
+            select: { id: true },
+          })
+        : [];
     const companyIds = myCompanies.map((c) => c.id);
 
     const projectWhere: Prisma.ProjectWhereInput =
@@ -54,8 +59,6 @@ export class DashboardService {
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-
-
 
     const activeProjectQuery: Prisma.ProjectWhereInput = {
       ...projectWhere,
@@ -125,31 +128,31 @@ export class DashboardService {
             AND current_qty <= min_stock_qty
           `.then((r) => Number(r[0]?.count ?? 0));
 
-      const [
-        activeProjectsCount,
-        workersOnSiteCount,
-        payrollPendingCount,
-        inventoryAlertsCount,
-        totalProjects,
-        activeProjects,
-        totalWorkersOnSite,
-        workersOnSite,
-        totalInvitations,
-        pendingInvitations,
-        myCompaniesCount,
-        workforceCount,
-        projectBudgetAgg,
-        payrollAgg,
-        expenseAgg,
-        planningTasksCount,
-        inProgressTasksCount,
-        reviewTasksCount,
-        completedTasksCount,
-        adminTenantUser,
-        taskReports,
-        payrolls,
-        expenses,
-      ] = await Promise.all([
+    const [
+      activeProjectsCount,
+      workersOnSiteCount,
+      payrollPendingCount,
+      inventoryAlertsCount,
+      totalProjects,
+      activeProjects,
+      totalWorkersOnSite,
+      workersOnSite,
+      totalInvitations,
+      pendingInvitations,
+      myCompaniesCount,
+      workforceCount,
+      projectBudgetAgg,
+      payrollAgg,
+      expenseAgg,
+      planningTasksCount,
+      inProgressTasksCount,
+      reviewTasksCount,
+      completedTasksCount,
+      adminTenantUser,
+      taskReports,
+      payrolls,
+      expenses,
+    ] = await Promise.all([
       // ── Stats ──────────────────────────────────────
       this.prisma.project.count({
         where: activeProjectQuery,
@@ -256,7 +259,11 @@ export class DashboardService {
         where: {
           OR: [
             { companyMembers: { some: { companyId: { in: companyIds } } } },
-            { projectMemberships: { some: { project: { companyId: { in: companyIds } } } } },
+            {
+              projectMemberships: {
+                some: { project: { companyId: { in: companyIds } } },
+              },
+            },
           ],
           role: { in: [UserRole.worker, UserRole.manager] },
         },
@@ -284,10 +291,18 @@ export class DashboardService {
       }),
 
       // ── Task Indicators ─────────────────────────────
-      this.prisma.task.count({ where: { project: projectWhere, status: 'pending' } }),
-      this.prisma.task.count({ where: { project: projectWhere, status: 'in_progress' } }),
-      this.prisma.task.count({ where: { project: projectWhere, status: 'review' } }),
-      this.prisma.task.count({ where: { project: projectWhere, status: 'completed' } }),
+      this.prisma.task.count({
+        where: { project: projectWhere, status: 'pending' },
+      }),
+      this.prisma.task.count({
+        where: { project: projectWhere, status: 'in_progress' },
+      }),
+      this.prisma.task.count({
+        where: { project: projectWhere, status: 'review' },
+      }),
+      this.prisma.task.count({
+        where: { project: projectWhere, status: 'completed' },
+      }),
 
       // ── Tenant & Subscription ───────────────────────
       this.prisma.user.findUnique({
@@ -341,14 +356,22 @@ export class DashboardService {
     ]);
 
     const tenant = adminTenantUser?.tenant;
-    const isExpired = Boolean(tenant?.currentPeriodEnd && new Date(tenant.currentPeriodEnd).getTime() < Date.now());
+    const isExpired = Boolean(
+      tenant?.currentPeriodEnd &&
+      new Date(tenant.currentPeriodEnd).getTime() < Date.now(),
+    );
 
     const unifiedActivity = [
       ...taskReports.map((r) => ({
         id: r.id,
-        type: (r.reviewDecision === 'approved' ? 'task_completed' : 'report_uploaded') as any,
+        type: (r.reviewDecision === 'approved'
+          ? 'task_completed'
+          : 'report_uploaded') as any,
         actor: r.worker,
-        description: r.reviewDecision === 'approved' ? 'completed task' : 'uploaded report',
+        description:
+          r.reviewDecision === 'approved'
+            ? 'completed task'
+            : 'uploaded report',
         subject: r.task.title,
         project: r.task.project?.name ?? null,
         occurredAt: r.submittedAt,
@@ -371,16 +394,36 @@ export class DashboardService {
         project: e.project?.name ?? null,
         occurredAt: e.createdAt,
       })),
-    ].sort(
-      (a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime(),
-    ).slice(0, 6);
+    ]
+      .sort(
+        (a, b) =>
+          new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime(),
+      )
+      .slice(0, 6);
 
-    const totalTasksCount = planningTasksCount + inProgressTasksCount + reviewTasksCount + completedTasksCount;
-    const taskCompletionRate = totalTasksCount > 0 ? Math.round((completedTasksCount / totalTasksCount) * 100) : 0;
+    const totalTasksCount =
+      planningTasksCount +
+      inProgressTasksCount +
+      reviewTasksCount +
+      completedTasksCount;
+    const taskCompletionRate =
+      totalTasksCount > 0
+        ? Math.round((completedTasksCount / totalTasksCount) * 100)
+        : 0;
 
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     const currentMonthIdx = new Date().getMonth();
     const forecastData = months.map((name, i) => {
@@ -403,7 +446,10 @@ export class DashboardService {
     const taskIndicators = {
       totalTasks: totalTasksCount,
       activeTasks: { value: inProgressTasksCount, change: 0 },
-      pendingApprovals: { value: reviewTasksCount + payrollPendingCount, change: 0 },
+      pendingApprovals: {
+        value: reviewTasksCount + payrollPendingCount,
+        change: 0,
+      },
       completed: { value: completedTasksCount, change: 0 },
       efficiency: taskCompletionRate,
       teamSize: workforceCount,
@@ -415,11 +461,13 @@ export class DashboardService {
       const checkIn = a.sessions[0]?.checkInTime ?? null;
       let hoursWorked = 0;
       if (checkIn) {
-        hoursWorked = (Date.now() - new Date(checkIn).getTime()) / (1000 * 60 * 60);
+        hoursWorked =
+          (Date.now() - new Date(checkIn).getTime()) / (1000 * 60 * 60);
       }
       const h = Math.floor(hoursWorked);
       const m = Math.round((hoursWorked - h) * 60);
-      const status: 'on_time' | 'overtime' = hoursWorked >= 8 ? 'overtime' : 'on_time';
+      const status: 'on_time' | 'overtime' =
+        hoursWorked >= 8 ? 'overtime' : 'on_time';
       const companyMemberRole = a.user.companyMembers?.[0]?.role;
 
       return {
@@ -434,7 +482,6 @@ export class DashboardService {
         checkInTime: checkIn,
       };
     });
-
 
     return {
       // ── Legacy Mobile Compatibility ───────────────
@@ -537,12 +584,20 @@ export class DashboardService {
     };
   }
 
-  async getAllActiveWorkers(adminId: string, userRole: string, query: DashboardQueryDto) {
+  async getAllActiveWorkers(
+    adminId: string,
+    userRole: string,
+    query: DashboardQueryDto,
+  ) {
     const { workersPage = 1, workersLimit = 10 } = query;
 
-    const myCompanies = userRole === UserRole.admin
-      ? await this.prisma.company.findMany({ where: { ownerId: adminId, isActive: true }, select: { id: true } })
-      : [];
+    const myCompanies =
+      userRole === UserRole.admin
+        ? await this.prisma.company.findMany({
+            where: { ownerId: adminId, isActive: true },
+            select: { id: true },
+          })
+        : [];
     const companyIds = myCompanies.map((c) => c.id);
 
     const attendanceUserWhere: Prisma.UserWhereInput =
@@ -589,7 +644,9 @@ export class DashboardService {
       user: attendanceUserWhere,
     } as Prisma.AttendanceWhereInput;
 
-    const totalWorkersOnSite = await this.prisma.attendance.count({ where: attendanceWhere2 });
+    const totalWorkersOnSite = await this.prisma.attendance.count({
+      where: attendanceWhere2,
+    });
 
     const workersOnSite = await this.prisma.attendance.findMany({
       where: attendanceWhere2,
@@ -603,7 +660,10 @@ export class DashboardService {
             avatarUrl: true,
             role: true,
             companyMembers: {
-              where: userRole === UserRole.manager ? {} : { companyId: { in: companyIds } },
+              where:
+                userRole === UserRole.manager
+                  ? {}
+                  : { companyId: { in: companyIds } },
               select: { role: true },
               take: 1,
             },
@@ -647,12 +707,20 @@ export class DashboardService {
     };
   }
 
-  async getAllActiveProjects(adminId: string, userRole: string, query: DashboardQueryDto) {
+  async getAllActiveProjects(
+    adminId: string,
+    userRole: string,
+    query: DashboardQueryDto,
+  ) {
     const { projectsPage = 1, projectsLimit = 10 } = query;
 
-    const myCompanies = userRole === UserRole.admin
-      ? await this.prisma.company.findMany({ where: { ownerId: adminId, isActive: true }, select: { id: true } })
-      : [];
+    const myCompanies =
+      userRole === UserRole.admin
+        ? await this.prisma.company.findMany({
+            where: { ownerId: adminId, isActive: true },
+            select: { id: true },
+          })
+        : [];
     const companyIds = myCompanies.map((c) => c.id);
 
     const projectWhere: Prisma.ProjectWhereInput =
@@ -674,7 +742,9 @@ export class DashboardService {
       status: ProjectStatus.active,
     };
 
-    const totalProjects = await this.prisma.project.count({ where: activeProjectQuery });
+    const totalProjects = await this.prisma.project.count({
+      where: activeProjectQuery,
+    });
 
     const projects = await this.prisma.project.findMany({
       where: activeProjectQuery,

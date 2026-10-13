@@ -13,9 +13,23 @@ import {
   type MulticastMessage,
 } from 'firebase-admin/messaging';
 
-type NotificationRole = 'super_admin' | 'admin' | 'manager' | 'worker' | 'viewer';
+type NotificationRole =
+  | 'super_admin'
+  | 'admin'
+  | 'manager'
+  | 'worker'
+  | 'viewer';
 type PushPayload = Record<string, string | undefined>;
-type NotificationType = 'task' | 'report' | 'payroll' | 'inventory' | 'message' | 'geofence' | 'expense' | 'attendance' | 'general';
+type NotificationType =
+  | 'task'
+  | 'report'
+  | 'payroll'
+  | 'inventory'
+  | 'message'
+  | 'geofence'
+  | 'expense'
+  | 'attendance'
+  | 'general';
 
 const DEFAULT_ANDROID_CHANNEL_ID = 'default';
 const DEFAULT_NOTIFICATION_SOUND = 'default';
@@ -49,7 +63,12 @@ export class NotificationsService {
       return normalized;
     }
 
-    if (normalized === 'success' || normalized === 'info' || normalized === 'warning' || normalized === 'error') {
+    if (
+      normalized === 'success' ||
+      normalized === 'info' ||
+      normalized === 'warning' ||
+      normalized === 'error'
+    ) {
       return 'general';
     }
 
@@ -77,7 +96,7 @@ export class NotificationsService {
 
     const notification = await this.prisma.notification.create({
       data: {
-        userId: dto.userId!,
+        userId: dto.userId,
         title: dto.title,
         body: dto.body,
         type: this.normalizeNotificationType(dto.type),
@@ -97,7 +116,7 @@ export class NotificationsService {
       type: dto.type,
       refId: dto.refId,
       refType: dto.refType,
-    }).catch(e => this.logger.error('Firebase push error', e));
+    }).catch((e) => this.logger.error('Firebase push error', e));
     return notification;
   }
 
@@ -139,14 +158,16 @@ export class NotificationsService {
       this.gateway.sendToRole(role, notification);
     });
 
-    await Promise.all(users.map((user) => this.pruneUserNotifications(user.id)));
+    await Promise.all(
+      users.map((user) => this.pruneUserNotifications(user.id)),
+    );
 
     this.sendFirebasePushToRole(role, dto.title, dto.body, {
       type: dto.type,
       refId: dto.refId,
       refType: dto.refType,
-    }).catch(e => this.logger.error('Firebase push error', e));
-    
+    }).catch((e) => this.logger.error('Firebase push error', e));
+
     return notifications;
   }
 
@@ -158,7 +179,7 @@ export class NotificationsService {
         refType: data?.refType,
         channelId: DEFAULT_ANDROID_CHANNEL_ID,
         sound: DEFAULT_NOTIFICATION_SOUND,
-      }).filter(([, value]) => value !== undefined) as Array<[string, string]>,
+      }).filter(([, value]) => value !== undefined),
     );
   }
 

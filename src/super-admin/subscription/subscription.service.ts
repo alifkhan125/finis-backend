@@ -17,8 +17,6 @@ import {
 import { UserRole } from '../../generated/prisma/client';
 import Stripe from 'stripe';
 
-
-
 @Injectable()
 export class SubscriptionService {
   private readonly stripe: any;
@@ -38,10 +36,9 @@ export class SubscriptionService {
     stripePriceMonthlyId: string | null;
     stripePriceYearlyId: string | null;
   }) {
-    const product =
-      plan.stripeProductId
-        ? await this.stripe.products.retrieve(plan.stripeProductId)
-        : await this.stripe.products.create({
+    const product = plan.stripeProductId
+      ? await this.stripe.products.retrieve(plan.stripeProductId)
+      : await this.stripe.products.create({
           name: plan.name,
           metadata: { planId: plan.id },
         });
@@ -55,7 +52,10 @@ export class SubscriptionService {
       if (priceId) {
         try {
           const existing = await this.stripe.prices.retrieve(priceId);
-          if (existing?.recurring?.interval === interval && existing?.active !== false) {
+          if (
+            existing?.recurring?.interval === interval &&
+            existing?.active !== false
+          ) {
             return { id: existing.id };
           }
         } catch {
@@ -164,7 +164,8 @@ export class SubscriptionService {
     const exists = await this.prisma.subscriptionPlan.findFirst({
       where: { name: { equals: dto.name, mode: 'insensitive' } },
     });
-    if (exists) throw new ConflictException('A plan with this name already exists');
+    if (exists)
+      throw new ConflictException('A plan with this name already exists');
 
     const plan = await this.prisma.subscriptionPlan.create({
       data: {
@@ -213,7 +214,10 @@ export class SubscriptionService {
           id: { not: planId },
         },
       });
-      if (duplicate) throw new ConflictException('Another plan with this name already exists');
+      if (duplicate)
+        throw new ConflictException(
+          'Another plan with this name already exists',
+        );
     }
 
     const updated = await this.prisma.subscriptionPlan.update({
@@ -221,7 +225,10 @@ export class SubscriptionService {
       data: { ...dto },
     });
 
-    const shouldResync = dto.name !== undefined || dto.priceMonthly !== undefined || dto.priceYearly !== undefined;
+    const shouldResync =
+      dto.name !== undefined ||
+      dto.priceMonthly !== undefined ||
+      dto.priceYearly !== undefined;
     if (shouldResync) {
       const stripeData = await this.syncStripePrices({
         id: updated.id,
@@ -312,7 +319,10 @@ export class SubscriptionService {
         planInterval: t.planInterval ?? null,
         stripeSubscriptionId: t.stripeSubscriptionId ?? null,
         billedAmount: this.getBilledAmount(
-          { priceMonthly: t.plan.priceMonthly, priceYearly: t.plan.priceYearly ?? null },
+          {
+            priceMonthly: t.plan.priceMonthly,
+            priceYearly: t.plan.priceYearly ?? null,
+          },
           t.planInterval,
         ),
         plan: t.plan,
@@ -384,16 +394,26 @@ export class SubscriptionService {
       data: tenants.map((tenant) => {
         const interval = tenant.planInterval ?? 'monthly';
         const billedAmount = this.getBilledAmount(
-          { priceMonthly: tenant.plan.priceMonthly, priceYearly: tenant.plan.priceYearly ?? null },
+          {
+            priceMonthly: tenant.plan.priceMonthly,
+            priceYearly: tenant.plan.priceYearly ?? null,
+          },
           interval,
         );
         const periodStart = tenant.currentPeriodStart ?? null;
         const periodEnd = tenant.currentPeriodEnd ?? null;
-        const durationDays = periodStart && periodEnd
-          ? Math.max(1, Math.ceil((periodEnd.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24)))
-          : interval === 'yearly'
-            ? 365
-            : 30;
+        const durationDays =
+          periodStart && periodEnd
+            ? Math.max(
+                1,
+                Math.ceil(
+                  (periodEnd.getTime() - periodStart.getTime()) /
+                    (1000 * 60 * 60 * 24),
+                ),
+              )
+            : interval === 'yearly'
+              ? 365
+              : 30;
 
         return {
           tenant: {
@@ -456,14 +476,33 @@ export class SubscriptionService {
           ],
         },
       }),
-      this.prisma.user.count({ where: { role: { in: [UserRole.admin, UserRole.worker] } } }),
-      this.prisma.user.count({ where: { role: { in: [UserRole.admin, UserRole.worker] }, status: 'active' } }),
-      this.prisma.user.count({ where: { role: { in: [UserRole.admin, UserRole.worker] }, status: 'suspended' } }),
+      this.prisma.user.count({
+        where: { role: { in: [UserRole.admin, UserRole.worker] } },
+      }),
+      this.prisma.user.count({
+        where: {
+          role: { in: [UserRole.admin, UserRole.worker] },
+          status: 'active',
+        },
+      }),
+      this.prisma.user.count({
+        where: {
+          role: { in: [UserRole.admin, UserRole.worker] },
+          status: 'suspended',
+        },
+      }),
       this.prisma.subscriptionPurchase.findMany({
         where: { status: 'active' },
         orderBy: { startedAt: 'desc' },
         include: {
-          plan: { select: { id: true, name: true, priceMonthly: true, priceYearly: true } },
+          plan: {
+            select: {
+              id: true,
+              name: true,
+              priceMonthly: true,
+              priceYearly: true,
+            },
+          },
           tenant: { select: { id: true, name: true, status: true } },
           user: { select: { id: true, fullName: true, email: true } },
         },
@@ -497,11 +536,21 @@ export class SubscriptionService {
     const yearlyRevenue = subscriptionPurchases
       .filter((purchase) => purchase.interval === 'yearly')
       .reduce((sum, purchase) => sum + Number(purchase.amount ?? 0), 0);
-    const totalRevenue = subscriptionPurchases.reduce((sum, purchase) => sum + Number(purchase.amount ?? 0), 0);
+    const totalRevenue = subscriptionPurchases.reduce(
+      (sum, purchase) => sum + Number(purchase.amount ?? 0),
+      0,
+    );
 
     const revenueByPlanMap = new Map<
       string,
-      { planId: string; planName: string; salesCount: number; revenue: number; monthlyCount: number; yearlyCount: number }
+      {
+        planId: string;
+        planName: string;
+        salesCount: number;
+        revenue: number;
+        monthlyCount: number;
+        yearlyCount: number;
+      }
     >();
 
     for (const purchase of subscriptionPurchases) {
@@ -539,7 +588,9 @@ export class SubscriptionService {
         activeUsers,
         expiredUsers,
       },
-      revenueByPlan: [...revenueByPlanMap.values()].sort((a, b) => b.revenue - a.revenue),
+      revenueByPlan: [...revenueByPlanMap.values()].sort(
+        (a, b) => b.revenue - a.revenue,
+      ),
       recentTenants,
       recentActiveUsers,
       period: {
@@ -549,9 +600,12 @@ export class SubscriptionService {
     };
   }
 
-  async getSubscriptionSalesTrend(period: 'weekly' | 'monthly' | 'yearly' = 'weekly') {
+  async getSubscriptionSalesTrend(
+    period: 'weekly' | 'monthly' | 'yearly' = 'weekly',
+  ) {
     const now = new Date();
-    const bucketCount = period === 'yearly' ? 12 : period === 'monthly' ? 30 : 7;
+    const bucketCount =
+      period === 'yearly' ? 12 : period === 'monthly' ? 30 : 7;
     const start = new Date(now);
 
     if (period === 'yearly') {
@@ -576,13 +630,16 @@ export class SubscriptionService {
       orderBy: { createdAt: 'asc' },
     });
 
-    const buckets = new Map<string, { label: string; revenue: number; salesCount: number; rawDate: Date }>();
+    const buckets = new Map<
+      string,
+      { label: string; revenue: number; salesCount: number; rawDate: Date }
+    >();
 
     const pushBucket = (key: string, label: string, rawDate: Date) => {
       if (!buckets.has(key)) {
         buckets.set(key, { label, revenue: 0, salesCount: 0, rawDate });
       }
-      return buckets.get(key)!;
+      return buckets.get(key);
     };
 
     for (const purchase of purchases) {
@@ -590,20 +647,34 @@ export class SubscriptionService {
       if (period === 'yearly') {
         const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
         const label = d.toLocaleString('en-US', { month: 'short' });
-        const bucket = pushBucket(key, label, new Date(d.getFullYear(), d.getMonth(), 1));
+        const bucket = pushBucket(
+          key,
+          label,
+          new Date(d.getFullYear(), d.getMonth(), 1),
+        );
         bucket.revenue += Number(purchase.amount ?? 0);
         bucket.salesCount += 1;
       } else if (period === 'monthly') {
         const key = d.toISOString().slice(0, 10);
         const label = d.getDate().toString();
-        const bucket = pushBucket(key, label, new Date(d.getFullYear(), d.getMonth(), d.getDate()));
+        const bucket = pushBucket(
+          key,
+          label,
+          new Date(d.getFullYear(), d.getMonth(), d.getDate()),
+        );
         bucket.revenue += Number(purchase.amount ?? 0);
         bucket.salesCount += 1;
       } else {
-        const day = Math.floor((d.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+        const day = Math.floor(
+          (d.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
+        );
         const key = `${day}`;
         const label = d.toLocaleDateString('en-US', { weekday: 'short' });
-        const bucket = pushBucket(key, label, new Date(d.getFullYear(), d.getMonth(), d.getDate()));
+        const bucket = pushBucket(
+          key,
+          label,
+          new Date(d.getFullYear(), d.getMonth(), d.getDate()),
+        );
         bucket.revenue += Number(purchase.amount ?? 0);
         bucket.salesCount += 1;
       }
@@ -611,14 +682,18 @@ export class SubscriptionService {
 
     const labels =
       period === 'yearly'
-        ? Array.from({ length: 12 }, (_, index) => new Date(now.getFullYear(), index, 1).toLocaleString('en-US', { month: 'short' }))
+        ? Array.from({ length: 12 }, (_, index) =>
+            new Date(now.getFullYear(), index, 1).toLocaleString('en-US', {
+              month: 'short',
+            }),
+          )
         : period === 'monthly'
           ? Array.from({ length: 30 }, (_, index) => String(index + 1))
           : Array.from({ length: 7 }, (_, index) => {
-            const date = new Date(start);
-            date.setDate(start.getDate() + index);
-            return date.toLocaleDateString('en-US', { weekday: 'short' });
-          });
+              const date = new Date(start);
+              date.setDate(start.getDate() + index);
+              return date.toLocaleDateString('en-US', { weekday: 'short' });
+            });
 
     const data = labels.map((label) => {
       const match = [...buckets.values()].find((item) => item.label === label);
@@ -636,7 +711,10 @@ export class SubscriptionService {
       data,
       summary: {
         totalSales: purchases.length,
-        totalRevenue: Math.round(purchases.reduce((sum, p) => sum + Number(p.amount ?? 0), 0) * 100) / 100,
+        totalRevenue:
+          Math.round(
+            purchases.reduce((sum, p) => sum + Number(p.amount ?? 0), 0) * 100,
+          ) / 100,
       },
     };
   }
@@ -690,13 +768,22 @@ export class SubscriptionService {
         planInterval: tenant.planInterval ?? null,
         stripeSubscriptionId: tenant.stripeSubscriptionId ?? null,
         billedAmount: this.getBilledAmount(
-          { priceMonthly: tenant.plan.priceMonthly, priceYearly: tenant.plan.priceYearly ?? null },
+          {
+            priceMonthly: tenant.plan.priceMonthly,
+            priceYearly: tenant.plan.priceYearly ?? null,
+          },
           tenant.planInterval,
         ),
       },
       usage: {
-        companies: { used: companyCount, max: tenant.plan.maxCompanies ?? 'Unlimited' },
-        projects: { used: projectCount, max: tenant.plan.maxProjects ?? 'Unlimited' },
+        companies: {
+          used: companyCount,
+          max: tenant.plan.maxCompanies ?? 'Unlimited',
+        },
+        projects: {
+          used: projectCount,
+          max: tenant.plan.maxProjects ?? 'Unlimited',
+        },
         users: { used: userCount, max: tenant.plan.maxUsers ?? 'Unlimited' },
       },
     };
@@ -707,26 +794,39 @@ export class SubscriptionService {
    * super_admin এটা করবে
    */
   async createTenant(dto: CreateTenantDto) {
-    const plan = await this.prisma.subscriptionPlan.findUnique({ where: { id: dto.planId } });
+    const plan = await this.prisma.subscriptionPlan.findUnique({
+      where: { id: dto.planId },
+    });
     if (!plan) throw new NotFoundException('Subscription plan not found');
-    if (!plan.isActive) throw new BadRequestException('This plan is not active');
+    if (!plan.isActive)
+      throw new BadRequestException('This plan is not active');
 
-    const existingUser = await this.prisma.user.findUnique({ where: { email: dto.adminEmail } });
-    if (existingUser) throw new ConflictException('An admin with this email already exists');
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email: dto.adminEmail },
+    });
+    if (existingUser)
+      throw new ConflictException('An admin with this email already exists');
 
     if (dto.domain) {
-      const existingTenant = await this.prisma.tenant.findUnique({ where: { domain: dto.domain } });
+      const existingTenant = await this.prisma.tenant.findUnique({
+        where: { domain: dto.domain },
+      });
       if (existingTenant) throw new ConflictException('Domain already taken');
     }
 
-    const interval = (dto as any).planInterval === 'yearly' ? 'yearly' : 'monthly';
+    const interval =
+      (dto as any).planInterval === 'yearly' ? 'yearly' : 'monthly';
     const billedAmount = this.getBilledAmount(
-      { priceMonthly: plan.priceMonthly, priceYearly: plan.priceYearly ?? null },
+      {
+        priceMonthly: plan.priceMonthly,
+        priceYearly: plan.priceYearly ?? null,
+      },
       interval,
     );
     const now = new Date();
     const periodEnd = new Date(now);
-    if (interval === 'yearly') periodEnd.setFullYear(periodEnd.getFullYear() + 1);
+    if (interval === 'yearly')
+      periodEnd.setFullYear(periodEnd.getFullYear() + 1);
     else periodEnd.setMonth(periodEnd.getMonth() + 1);
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -755,7 +855,15 @@ export class SubscriptionService {
           role: UserRole.admin,
           status: 'active',
         },
-        select: { id: true, fullName: true, email: true, phone: true, role: true, status: true, createdAt: true },
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          phone: true,
+          role: true,
+          status: true,
+          createdAt: true,
+        },
       });
 
       // ↓ eitai missing chilo — ei row na thakle revenue/chart kichu dekhabe na
@@ -777,7 +885,13 @@ export class SubscriptionService {
 
     return {
       message: 'Tenant and admin created successfully',
-      tenant: { id: result.tenant.id, name: result.tenant.name, domain: result.tenant.domain, status: result.tenant.status, planId: result.tenant.planId },
+      tenant: {
+        id: result.tenant.id,
+        name: result.tenant.name,
+        domain: result.tenant.domain,
+        status: result.tenant.status,
+        planId: result.tenant.planId,
+      },
       admin: result.admin,
     };
   }
@@ -785,31 +899,53 @@ export class SubscriptionService {
   async updateTenantPlan(tenantId: string, dto: UpdateTenantPlanDto) {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
-      include: { plan: true, _count: { select: { users: true, companies: true } } },
+      include: {
+        plan: true,
+        _count: { select: { users: true, companies: true } },
+      },
     });
     if (!tenant) throw new NotFoundException('Tenant not found');
 
-    const newPlan = await this.prisma.subscriptionPlan.findUnique({ where: { id: dto.planId } });
+    const newPlan = await this.prisma.subscriptionPlan.findUnique({
+      where: { id: dto.planId },
+    });
     if (!newPlan) throw new NotFoundException('Plan not found');
-    if (!newPlan.isActive) throw new BadRequestException('This plan is not active');
+    if (!newPlan.isActive)
+      throw new BadRequestException('This plan is not active');
 
-    const projectCount = await this.prisma.project.count({ where: { company: { tenantId } } });
-    if (newPlan.maxCompanies && tenant._count.companies > newPlan.maxCompanies) {
-      throw new BadRequestException(`Cannot downgrade — tenant has ${tenant._count.companies} companies but new plan allows only ${newPlan.maxCompanies}`);
+    const projectCount = await this.prisma.project.count({
+      where: { company: { tenantId } },
+    });
+    if (
+      newPlan.maxCompanies &&
+      tenant._count.companies > newPlan.maxCompanies
+    ) {
+      throw new BadRequestException(
+        `Cannot downgrade — tenant has ${tenant._count.companies} companies but new plan allows only ${newPlan.maxCompanies}`,
+      );
     }
     if (newPlan.maxProjects && projectCount > newPlan.maxProjects) {
-      throw new BadRequestException(`Cannot downgrade — tenant has ${projectCount} projects but new plan allows only ${newPlan.maxProjects}`);
+      throw new BadRequestException(
+        `Cannot downgrade — tenant has ${projectCount} projects but new plan allows only ${newPlan.maxProjects}`,
+      );
     }
     if (newPlan.maxUsers && tenant._count.users > newPlan.maxUsers) {
-      throw new BadRequestException(`Cannot downgrade — tenant has ${tenant._count.users} users but new plan allows only ${newPlan.maxUsers}`);
+      throw new BadRequestException(
+        `Cannot downgrade — tenant has ${tenant._count.users} users but new plan allows only ${newPlan.maxUsers}`,
+      );
     }
 
     const interval = tenant.planInterval ?? 'monthly';
     const billedAmount = this.getBilledAmount(
-      { priceMonthly: newPlan.priceMonthly, priceYearly: newPlan.priceYearly ?? null },
+      {
+        priceMonthly: newPlan.priceMonthly,
+        priceYearly: newPlan.priceYearly ?? null,
+      },
       interval,
     );
-    const adminUser = await this.prisma.user.findFirst({ where: { tenantId, role: UserRole.admin } });
+    const adminUser = await this.prisma.user.findFirst({
+      where: { tenantId, role: UserRole.admin },
+    });
 
     const updated = await this.prisma.$transaction(async (tx) => {
       const updatedTenant = await tx.tenant.update({
@@ -839,7 +975,11 @@ export class SubscriptionService {
 
     return {
       message: 'Plan updated successfully',
-      tenant: { id: updated.id, name: updated.name, plan: { id: updated.plan.id, name: updated.plan.name } },
+      tenant: {
+        id: updated.id,
+        name: updated.name,
+        plan: { id: updated.plan.id, name: updated.plan.name },
+      },
     };
   }
 
@@ -1020,20 +1160,20 @@ export class SubscriptionService {
 
     const tenant = user?.tenantId
       ? await this.prisma.tenant.findUnique({
-        where: { id: user.tenantId },
-        include: {
-          plan: true,
-          _count: { select: { users: true, companies: true } },
-        },
-      })
-      : user?.email
-        ? await this.prisma.tenant.findFirst({
-          where: { billingEmail: user.email },
+          where: { id: user.tenantId },
           include: {
             plan: true,
             _count: { select: { users: true, companies: true } },
           },
         })
+      : user?.email
+        ? await this.prisma.tenant.findFirst({
+            where: { billingEmail: user.email },
+            include: {
+              plan: true,
+              _count: { select: { users: true, companies: true } },
+            },
+          })
         : null;
 
     if (!tenant) {
@@ -1059,21 +1199,30 @@ export class SubscriptionService {
       tenantName: tenant.name,
       plan: tenant.plan
         ? {
-          id: tenant.plan.id,
-          name: tenant.plan.name,
-          priceMonthly: tenant.plan.priceMonthly,
-          priceYearly: tenant.plan.priceYearly,
-        }
+            id: tenant.plan.id,
+            name: tenant.plan.name,
+            priceMonthly: tenant.plan.priceMonthly,
+            priceYearly: tenant.plan.priceYearly,
+          }
         : null,
       subscriptionStatus: tenant.subscriptionStatus ?? null,
       currentPeriodStart: tenant.currentPeriodStart,
       currentPeriodEnd: tenant.currentPeriodEnd,
       planInterval: tenant.planInterval ?? null,
-      isExpired: Boolean(tenant.currentPeriodEnd && new Date(tenant.currentPeriodEnd).getTime() < Date.now()),
+      isExpired: Boolean(
+        tenant.currentPeriodEnd &&
+        new Date(tenant.currentPeriodEnd).getTime() < Date.now(),
+      ),
       usage: {
-        companies: { used: tenant._count.companies, max: tenant.plan?.maxCompanies ?? null },
+        companies: {
+          used: tenant._count.companies,
+          max: tenant.plan?.maxCompanies ?? null,
+        },
         projects: { used: projectCount, max: tenant.plan?.maxProjects ?? null },
-        users: { used: tenant._count.users, max: tenant.plan?.maxUsers ?? null },
+        users: {
+          used: tenant._count.users,
+          max: tenant.plan?.maxUsers ?? null,
+        },
       },
     };
   }

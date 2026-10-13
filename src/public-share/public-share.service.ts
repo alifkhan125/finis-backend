@@ -24,7 +24,9 @@ export class PublicShareService {
     });
 
     if (!company) {
-      throw new NotFoundException('Public company profile not found or link is invalid.');
+      throw new NotFoundException(
+        'Public company profile not found or link is invalid.',
+      );
     }
 
     return company;
@@ -48,13 +50,15 @@ export class PublicShareService {
           select: {
             name: true,
             logoUrl: true,
-          }
+          },
         },
       },
     });
 
     if (!project) {
-      throw new NotFoundException('Public project profile not found or link is invalid.');
+      throw new NotFoundException(
+        'Public project profile not found or link is invalid.',
+      );
     }
 
     return project;

@@ -22,7 +22,7 @@ export class SuperAdminCompaniesService {
     private readonly prisma: PrismaService,
     private readonly mailService: MailService,
     private readonly storageService: StorageService,
-  ) { }
+  ) {}
 
   // ─── HELPER: build a { gte, lte } date range for a given period ───────────
   private buildDateRange(
@@ -73,8 +73,7 @@ export class SuperAdminCompaniesService {
     startDate?: string,
     endDate?: string,
   ): { gte: Date; lte: Date } {
-    const windowMs =
-      currentRange.lte.getTime() - currentRange.gte.getTime();
+    const windowMs = currentRange.lte.getTime() - currentRange.gte.getTime();
 
     if (period === CompanyPeriod.custom && startDate && endDate) {
       return {
@@ -134,29 +133,25 @@ export class SuperAdminCompaniesService {
       prevWhere.createdAt = prevRange;
     }
 
-    const [
-      total,
-      active,
-      revenueAgg,
-      prevTotal,
-      prevActive,
-      prevRevenueAgg,
-    ] = await Promise.all([
-      this.prisma.company.count({ where: currentWhere }),
-      this.prisma.company.count({ where: { ...currentWhere, isActive: true } }),
-      this.prisma.company.aggregate({
-        _sum: { revenue: true },
-        _avg: { revenue: true },
-        where: currentWhere,
-      }),
-      this.prisma.company.count({ where: prevWhere }),
-      this.prisma.company.count({ where: { ...prevWhere, isActive: true } }),
-      this.prisma.company.aggregate({
-        _sum: { revenue: true },
-        _avg: { revenue: true },
-        where: prevWhere,
-      }),
-    ]);
+    const [total, active, revenueAgg, prevTotal, prevActive, prevRevenueAgg] =
+      await Promise.all([
+        this.prisma.company.count({ where: currentWhere }),
+        this.prisma.company.count({
+          where: { ...currentWhere, isActive: true },
+        }),
+        this.prisma.company.aggregate({
+          _sum: { revenue: true },
+          _avg: { revenue: true },
+          where: currentWhere,
+        }),
+        this.prisma.company.count({ where: prevWhere }),
+        this.prisma.company.count({ where: { ...prevWhere, isActive: true } }),
+        this.prisma.company.aggregate({
+          _sum: { revenue: true },
+          _avg: { revenue: true },
+          where: prevWhere,
+        }),
+      ]);
 
     const totalRevenue = revenueAgg._sum.revenue ?? 0;
     const avgRevenue = revenueAgg._avg.revenue ?? 0;
@@ -350,15 +345,18 @@ export class SuperAdminCompaniesService {
       },
     });
 
-    const contactMap = new Map<string, {
-      id: string;
-      fullName: string;
-      role: string;
-      email: string | null;
-      phone: string | null;
-      avatarUrl: string | null;
-      isPrimary: boolean;
-    }>();
+    const contactMap = new Map<
+      string,
+      {
+        id: string;
+        fullName: string;
+        role: string;
+        email: string | null;
+        phone: string | null;
+        avatarUrl: string | null;
+        isPrimary: boolean;
+      }
+    >();
 
     for (const member of companyMembers) {
       contactMap.set(member.user.id, {
@@ -452,7 +450,6 @@ export class SuperAdminCompaniesService {
           : 100,
     }));
 
-
     // Completed projects
     const projectsCompleted = await this.prisma.project.count({
       where: { companyId, status: 'completed' },
@@ -509,7 +506,6 @@ export class SuperAdminCompaniesService {
 
     const { page = 1, limit = 10 } = query;
     const skip = (page - 1) * limit;
-
 
     const [projects, total] = await Promise.all([
       this.prisma.project.findMany({
@@ -614,8 +610,10 @@ export class SuperAdminCompaniesService {
         where: { project: { companyId } },
       }),
     ]);
-    
-    const projectCompletionValues = projects.map((project) => project.progress ?? 0);
+
+    const projectCompletionValues = projects.map(
+      (project) => project.progress ?? 0,
+    );
     const averageCompletionRate =
       projectCompletionValues.length > 0
         ? this.roundToOneDecimal(
@@ -631,10 +629,14 @@ export class SuperAdminCompaniesService {
     );
 
     const currentMonthProjects = projects.filter(
-      (project) => project.updatedAt && this.getMonthKey(project.updatedAt) === currentMonthKey,
+      (project) =>
+        project.updatedAt &&
+        this.getMonthKey(project.updatedAt) === currentMonthKey,
     );
     const previousMonthProjects = projects.filter(
-      (project) => project.updatedAt && this.getMonthKey(project.updatedAt) === previousMonthKey,
+      (project) =>
+        project.updatedAt &&
+        this.getMonthKey(project.updatedAt) === previousMonthKey,
     );
 
     const currentMonthCompletion =
@@ -667,11 +669,16 @@ export class SuperAdminCompaniesService {
         : 0;
 
     const months = Array.from({ length: 6 }, (_, index) => {
-      const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - (5 - index), 1);
+      const date = new Date(
+        currentMonth.getFullYear(),
+        currentMonth.getMonth() - (5 - index),
+        1,
+      );
       const monthKey = this.getMonthKey(date);
 
       const monthProjects = projects.filter(
-        (project) => project.updatedAt && this.getMonthKey(project.updatedAt) === monthKey,
+        (project) =>
+          project.updatedAt && this.getMonthKey(project.updatedAt) === monthKey,
       );
       const monthReports = taskReports.filter(
         (report) => this.getMonthKey(report.submittedAt) === monthKey,
@@ -690,7 +697,9 @@ export class SuperAdminCompaniesService {
       const monthCompliance =
         monthReports.length > 0
           ? this.roundToOneDecimal(
-              (monthReports.filter((report) => report.reviewDecision === 'approved').length /
+              (monthReports.filter(
+                (report) => report.reviewDecision === 'approved',
+              ).length /
                 monthReports.length) *
                 100,
             )
@@ -721,7 +730,10 @@ export class SuperAdminCompaniesService {
         avgCompletionRate: averageCompletionRate,
         safetyCompliance,
         workerEfficiency,
-        momGrowth: this.formatChange(currentMonthCompletion, previousMonthCompletion),
+        momGrowth: this.formatChange(
+          currentMonthCompletion,
+          previousMonthCompletion,
+        ),
       },
       charts: {
         performanceTrends: {
@@ -751,11 +763,17 @@ export class SuperAdminCompaniesService {
   async getCompanyDocuments(companyId: string, query: PaginationQueryDto) {
     await this.findOrFail(companyId);
 
-    const { search, page = 1, limit = 20, type } = query as PaginationQueryDto & { type?: string };
+    const {
+      search,
+      page = 1,
+      limit = 20,
+      type,
+    } = query as PaginationQueryDto & { type?: string };
     const skip = (page - 1) * limit;
     const normalizedType = type?.trim().toLowerCase();
     const normalizedSearch = search?.trim().toLowerCase();
-    const isPdfUrl = (value?: string | null) => Boolean(value && /\.pdf(\?|#|$)/i.test(value));
+    const isPdfUrl = (value?: string | null) =>
+      Boolean(value && /\.pdf(\?|#|$)/i.test(value));
 
     const [company, projectIds] = await Promise.all([
       this.prisma.company.findUnique({
@@ -774,78 +792,93 @@ export class SuperAdminCompaniesService {
 
     const companyProjectIds = projectIds.map((project) => project.id);
 
-    const [companyDocuments, projectDocuments, taskReports, expenses] = await Promise.all([
-      this.prisma.document.findMany({
-        where: { companyId },
-        orderBy: { uploadedAt: 'desc' },
-        select: {
-          id: true,
-          fileName: true,
-          fileUrl: true,
-          fileType: true,
-          fileSizeMb: true,
-          uploadedAt: true,
-          company: { select: { id: true, name: true } },
-          uploadedByUser: { select: { id: true, fullName: true } },
-        },
-      }),
-      this.prisma.document.findMany({
-        where: {
-          projectId: { in: companyProjectIds },
-        },
-        orderBy: { uploadedAt: 'desc' },
-        select: {
-          id: true,
-          fileName: true,
-          fileUrl: true,
-          fileType: true,
-          fileSizeMb: true,
-          uploadedAt: true,
-          project: { select: { id: true, name: true } },
-          uploadedByUser: { select: { id: true, fullName: true } },
-        },
-      }),
-      this.prisma.taskReport.findMany({
-        where: { task: { projectId: { in: companyProjectIds } } },
-        orderBy: { submittedAt: 'desc' },
-        select: {
-          id: true,
-          taskId: true,
-          subTaskId: true,
-          workerId: true,
-          notes: true,
-          beforePhotoUrl: true,
-          afterPhotoUrl: true,
-          receiptUrl: true,
-          reviewDecision: true,
-          reviewDescription: true,
-          submittedAt: true,
-          task: { select: { id: true, title: true } },
-          subTask: { select: { id: true, title: true } },
-          worker: { select: { id: true, fullName: true, avatarUrl: true, email: true } },
-        },
-      }),
-      this.prisma.expense.findMany({
-        where: { projectId: { in: companyProjectIds } },
-        orderBy: { createdAt: 'desc' },
-        select: {
-          id: true,
-          taskId: true,
-          subTaskId: true,
-          workerId: true,
-          description: true,
-          category: true,
-          amount: true,
-          receiptUrl: true,
-          status: true,
-          reviewedAt: true,
-          createdAt: true,
-          task: { select: { id: true, title: true } },
-          subTask: { select: { id: true, title: true } },
-          worker: { select: { id: true, fullName: true, avatarUrl: true, email: true } },
-        },
-      }),
-    ]);
+    const [companyDocuments, projectDocuments, taskReports, expenses] =
+      await Promise.all([
+        this.prisma.document.findMany({
+          where: { companyId },
+          orderBy: { uploadedAt: 'desc' },
+          select: {
+            id: true,
+            fileName: true,
+            fileUrl: true,
+            fileType: true,
+            fileSizeMb: true,
+            uploadedAt: true,
+            company: { select: { id: true, name: true } },
+            uploadedByUser: { select: { id: true, fullName: true } },
+          },
+        }),
+        this.prisma.document.findMany({
+          where: {
+            projectId: { in: companyProjectIds },
+          },
+          orderBy: { uploadedAt: 'desc' },
+          select: {
+            id: true,
+            fileName: true,
+            fileUrl: true,
+            fileType: true,
+            fileSizeMb: true,
+            uploadedAt: true,
+            project: { select: { id: true, name: true } },
+            uploadedByUser: { select: { id: true, fullName: true } },
+          },
+        }),
+        this.prisma.taskReport.findMany({
+          where: { task: { projectId: { in: companyProjectIds } } },
+          orderBy: { submittedAt: 'desc' },
+          select: {
+            id: true,
+            taskId: true,
+            subTaskId: true,
+            workerId: true,
+            notes: true,
+            beforePhotoUrl: true,
+            afterPhotoUrl: true,
+            receiptUrl: true,
+            reviewDecision: true,
+            reviewDescription: true,
+            submittedAt: true,
+            task: { select: { id: true, title: true } },
+            subTask: { select: { id: true, title: true } },
+            worker: {
+              select: {
+                id: true,
+                fullName: true,
+                avatarUrl: true,
+                email: true,
+              },
+            },
+          },
+        }),
+        this.prisma.expense.findMany({
+          where: { projectId: { in: companyProjectIds } },
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            taskId: true,
+            subTaskId: true,
+            workerId: true,
+            description: true,
+            category: true,
+            amount: true,
+            receiptUrl: true,
+            status: true,
+            reviewedAt: true,
+            createdAt: true,
+            task: { select: { id: true, title: true } },
+            subTask: { select: { id: true, title: true } },
+            worker: {
+              select: {
+                id: true,
+                fullName: true,
+                avatarUrl: true,
+                email: true,
+              },
+            },
+          },
+        }),
+      ]);
 
     const mappedCompanyDocs = companyDocuments.map((document) => ({
       id: document.id,
@@ -894,7 +927,9 @@ export class SuperAdminCompaniesService {
         uploadedAt: report.submittedAt,
         uploadedBy: report.worker,
         company: { id: company.id, name: company.name },
-        project: report.task ? { id: companyProjectIds.length ? report.taskId : null, name: null } : null,
+        project: report.task
+          ? { id: companyProjectIds.length ? report.taskId : null, name: null }
+          : null,
         task: report.task,
         subTask: report.subTask,
         expense: null,
@@ -925,7 +960,12 @@ export class SuperAdminCompaniesService {
         },
       }));
 
-    let documents: any[] = [...mappedCompanyDocs, ...mappedProjectDocs, ...mappedTaskDocs, ...mappedExpenseDocs];
+    let documents: any[] = [
+      ...mappedCompanyDocs,
+      ...mappedProjectDocs,
+      ...mappedTaskDocs,
+      ...mappedExpenseDocs,
+    ];
 
     if (normalizedType) {
       documents = documents.filter((doc) => doc.type === normalizedType);
@@ -952,7 +992,10 @@ export class SuperAdminCompaniesService {
 
     const total = documents.length;
     const paginated = documents
-      .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())
+      .sort(
+        (a, b) =>
+          new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime(),
+      )
       .slice(skip, skip + limit);
 
     return {
@@ -961,10 +1004,14 @@ export class SuperAdminCompaniesService {
     };
   }
 
-
   async uploadCompanyDocument(
     companyId: string,
-    file?: { originalname: string; filename: string; size: number; mimetype: string },
+    file?: {
+      originalname: string;
+      filename: string;
+      size: number;
+      mimetype: string;
+    },
     fileUrl?: string,
   ) {
     const company = await this.findOrFail(companyId);
@@ -1055,10 +1102,7 @@ export class SuperAdminCompaniesService {
 
   // ─── CREATE COMPANY ───────────────────────────────────────────────────────
   // image: ADD NEW COMPANY modal
-  async createCompany(
-    dto: CreateCompanyDto,
-    logoFilename?: string,
-  ) {
+  async createCompany(dto: CreateCompanyDto, logoFilename?: string) {
     if (!dto.ownerId) {
       throw new BadRequestException('ownerId (admin user) is required');
     }
@@ -1123,7 +1167,11 @@ export class SuperAdminCompaniesService {
     });
 
     // FIX: upsert primary Contact record if contact fields are provided
-    if (dto.primaryContact !== undefined || dto.contactEmail !== undefined || dto.contactPhone !== undefined) {
+    if (
+      dto.primaryContact !== undefined ||
+      dto.contactEmail !== undefined ||
+      dto.contactPhone !== undefined
+    ) {
       const existingPrimary = await this.prisma.contact.findFirst({
         where: { companyId, isPrimary: true },
       });
@@ -1132,7 +1180,9 @@ export class SuperAdminCompaniesService {
         await this.prisma.contact.update({
           where: { id: existingPrimary.id },
           data: {
-            ...(dto.primaryContact !== undefined && { fullName: dto.primaryContact }),
+            ...(dto.primaryContact !== undefined && {
+              fullName: dto.primaryContact,
+            }),
             ...(dto.contactEmail !== undefined && { email: dto.contactEmail }),
             ...(dto.contactPhone !== undefined && { phone: dto.contactPhone }),
           },
@@ -1175,7 +1225,6 @@ export class SuperAdminCompaniesService {
 
     return { message: 'Company deactivated successfully' };
   }
-
 
   // ─── PRIVATE helper ───────────────────────────────────────────────────────
   private async findOrFail(companyId: string) {
