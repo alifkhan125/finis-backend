@@ -1,0 +1,1 @@
+ALTER TYPE "ReimbursementExpenseStatus" ADD VALUE IF NOT EXISTS 'REVISION';
