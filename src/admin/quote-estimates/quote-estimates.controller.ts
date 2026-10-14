@@ -27,7 +27,7 @@ import { QuoteEstimatesService } from './quote-estimates.service';
 
 @Controller('admin/quote-estimates')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.admin, UserRole.super_admin)
+@Roles(UserRole.admin, UserRole.super_admin, UserRole.manager)
 export class QuoteEstimatesController {
   constructor(private readonly service: QuoteEstimatesService) {}
 

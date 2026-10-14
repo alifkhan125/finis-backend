@@ -14,7 +14,7 @@ import {
   ReviewTaskDto,
   CreateSubTaskDto,
 } from './dto/task.dto';
-import { Prisma, UserRole, TaskPriority } from '../../generated/prisma/client';
+import { Prisma, UserRole, TaskPriority, ProjectStatus } from '../../generated/prisma/client';
 
 type AuthUser = {
   id: string;
@@ -385,31 +385,62 @@ export class TaskService {
     }
 
     if (subTaskCount === completedCount) {
-      await this.prisma.task.update({
+      const updated = await this.prisma.task.update({
         where: { id: taskId },
         data: { status: 'completed' },
       });
+      await this.refreshProjectProgress(updated.projectId);
       return;
     }
 
     // কোনো SubTask incomplete বা revision-এ আছে → main task in_progress
-    await this.prisma.task.update({
+    const updated = await this.prisma.task.update({
       where: { id: taskId },
       data: { status: 'in_progress' },
     });
+    await this.refreshProjectProgress(updated.projectId);
   }
 
   public async refreshProjectProgress(projectId: string) {
     if (!projectId) return;
-    const [totalTasks, completedTasks] = await Promise.all([
-      this.prisma.task.count({ where: { projectId } }),
-      this.prisma.task.count({ where: { projectId, status: 'completed' } }),
-    ]);
+    const [totalTasks, completedTasks, totalSubTasks, completedSubTasks, project] =
+      await Promise.all([
+        this.prisma.task.count({ where: { projectId } }),
+        this.prisma.task.count({ where: { projectId, status: 'completed' } }),
+        this.prisma.subTask.count({ where: { task: { projectId } } }),
+        this.prisma.subTask.count({
+          where: { task: { projectId }, status: 'completed' },
+        }),
+        this.prisma.project.findUnique({
+          where: { id: projectId },
+          select: { status: true, progress: true },
+        }),
+      ]);
+
+    if (!project) return;
+
     const progress =
-      totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+      totalSubTasks > 0
+        ? Math.round((completedSubTasks / totalSubTasks) * 100)
+        : totalTasks > 0
+          ? Math.round((completedTasks / totalTasks) * 100)
+          : 0;
+
+    let nextStatus = project.status;
+    if (
+      project.status === ProjectStatus.planning ||
+      project.status === ProjectStatus.active
+    ) {
+      if (progress >= 100 && (totalSubTasks > 0 || totalTasks > 0)) {
+        nextStatus = ProjectStatus.completed;
+      } else if (progress > 0 || completedSubTasks > 0 || completedTasks > 0) {
+        nextStatus = ProjectStatus.active;
+      }
+    }
+
     await this.prisma.project.update({
       where: { id: projectId },
-      data: { progress },
+      data: { progress, status: nextStatus },
     });
   }
 
@@ -2714,9 +2745,11 @@ export class TaskService {
       );
     }
     if (!(task as any).allowSubTaskCreation) {
-      throw new BadRequestException(
-        'Subtask creation is disabled for this main task',
-      );
+      await this.prisma.task.update({
+        where: { id: taskId },
+        data: { allowSubTaskCreation: true },
+      });
+      (task as any).allowSubTaskCreation = true;
     }
     this.assertCanWriteTaskPrice(userRole, dto.price);
 

@@ -797,16 +797,54 @@ export class ProjectService {
     const actualSpent = Math.max(project.spent ?? 0, calculatedSpent);
     const actualRemaining = Math.max(0, (project.budget ?? 0) - actualSpent);
 
-    const completedTasksCount = await this.prisma.task.count({
-      where: { projectId: project.id, status: 'completed' },
-    });
+    const [completedTasksCount, totalSubTasks, completedSubTasks] =
+      await Promise.all([
+        this.prisma.task.count({
+          where: { projectId: project.id, status: 'completed' },
+        }),
+        this.prisma.subTask.count({
+          where: { task: { projectId: project.id } },
+        }),
+        this.prisma.subTask.count({
+          where: { task: { projectId: project.id }, status: 'completed' },
+        }),
+      ]);
 
     const calculatedProgress =
-      project._count.tasks > 0
-        ? Math.round((completedTasksCount / project._count.tasks) * 100)
-        : 0;
+      totalSubTasks > 0
+        ? Math.round((completedSubTasks / totalSubTasks) * 100)
+        : project._count.tasks > 0
+          ? Math.round((completedTasksCount / project._count.tasks) * 100)
+          : 0;
 
     const actualProgress = Math.max(project.progress ?? 0, calculatedProgress);
+
+    let derivedStatus = project.status;
+    if (
+      project.status === ProjectStatus.planning ||
+      project.status === ProjectStatus.active
+    ) {
+      if (
+        actualProgress >= 100 &&
+        (totalSubTasks > 0 || project._count.tasks > 0)
+      ) {
+        derivedStatus = ProjectStatus.completed;
+      } else if (
+        actualProgress > 0 ||
+        completedSubTasks > 0 ||
+        completedTasksCount > 0
+      ) {
+        derivedStatus = ProjectStatus.active;
+      }
+    }
+
+    if (derivedStatus !== project.status || actualProgress !== project.progress) {
+      await this.prisma.project.update({
+        where: { id: project.id },
+        data: { status: derivedStatus, progress: actualProgress },
+      });
+      project.status = derivedStatus;
+    }
 
     const primaryContact = project.company.contacts?.[0] ?? null;
     const floorRangeCount =
@@ -822,7 +860,7 @@ export class ProjectService {
       id: project.id,
       name: project.name,
       type: project.type,
-      status: project.status,
+      status: derivedStatus,
       priority: project.priority,
       isWholeHouse: project.isWholeHouse,
       houseSections: project.houseSections,

@@ -40,9 +40,26 @@ export class CompanyService {
         select: { companyId: true },
       });
 
-      return [
-        ...new Set(memberships.map((membership) => membership.companyId)),
-      ];
+      if (memberships.length > 0) {
+        return [
+          ...new Set(memberships.map((membership) => membership.companyId)),
+        ];
+      }
+
+      // If no specific company member link is assigned, allow active companies
+      const allActive = await this.prisma.company.findMany({
+        where: { isActive: true },
+        select: { id: true },
+      });
+      return allActive.map((company) => company.id);
+    }
+
+    if (userRole === 'super_admin') {
+      const allActive = await this.prisma.company.findMany({
+        where: { isActive: true },
+        select: { id: true },
+      });
+      return allActive.map((company) => company.id);
     }
 
     return [];

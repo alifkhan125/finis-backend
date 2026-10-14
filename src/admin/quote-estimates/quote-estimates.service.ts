@@ -44,8 +44,12 @@ export class QuoteEstimatesService {
   ) {}
 
   private assertAdmin(role: string) {
-    if (role !== UserRole.admin && role !== UserRole.super_admin) {
-      throw new ForbiddenException('Admin access required');
+    if (
+      role !== UserRole.admin &&
+      role !== UserRole.super_admin &&
+      role !== UserRole.manager
+    ) {
+      throw new ForbiddenException('Admin or Manager access required');
     }
   }
 

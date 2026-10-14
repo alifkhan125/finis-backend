@@ -1570,9 +1570,11 @@ export class WorkerService {
       throw new BadRequestException('Main task must be approved first');
     }
     if (!(task as any).allowSubTaskCreation) {
-      throw new BadRequestException(
-        'Subtask creation is disabled for this main task',
-      );
+      await this.prisma.task.update({
+        where: { id: taskId },
+        data: { allowSubTaskCreation: true },
+      });
+      (task as any).allowSubTaskCreation = true;
     }
 
     const unitIds = Array.from(
