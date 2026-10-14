@@ -130,6 +130,8 @@ model User {
   projectMemberships       ProjectMember[]
   quoteAcceptances         QuoteAcceptance[]        @relation("QuoteAcceptanceUser")
   quoteEstimatesCreated    QuoteEstimate[]          @relation("QuoteEstimateCreator")
+  changeOrdersCreated      ChangeOrder[]            @relation("ChangeOrderCreator")
+  paymentsRecorded         Payment[]                @relation("PaymentRecorder")
   projectInvoicesCreated   ProjectInvoice[]         @relation("ProjectInvoiceCreator")
   quotesCreated            Quote[]
   reimbursementExpenses    ReimbursementExpense[]   @relation("ReimbursementExpenseCreator")
@@ -318,6 +320,11 @@ model Project {
   budget                 Float?
   spent                  Float?
   remaining              Float?
+  financialStatus        ProjectFinancialStatus @default(unpaid) @map("financial_status")
+  originalContract       Decimal                @default(0) @map("original_contract") @db.Decimal(12, 2)
+  totalContractAmount    Decimal                @default(0) @map("total_contract_amount") @db.Decimal(12, 2)
+  totalReceived          Decimal                @default(0) @map("total_received") @db.Decimal(12, 2)
+  contractBalance        Decimal                @default(0) @map("contract_balance") @db.Decimal(12, 2)
   location               String?
   description            String?
   status                 ProjectStatus          @default(planning)
@@ -347,44 +354,49 @@ model Project {
   reimbursementExpenses  ReimbursementExpense[]
   tasks                  Task[]
   projectInvoices        ProjectInvoice[]
+  changeOrders           ChangeOrder[]
+  payments               Payment[]
   convertedQuoteEstimate QuoteEstimate?         @relation("QuoteEstimateConvertedProject")
 
   @@map("projects")
 }
 
 model QuoteEstimate {
-  id                 String              @id @default(uuid()) @db.Uuid
-  quoteNumber        String              @unique @map("quote_number")
-  companyId          String              @map("company_id") @db.Uuid
-  projectName        String              @map("project_name")
-  clientName         String              @map("client_name")
-  clientEmail        String?             @map("client_email")
-  clientPhone        String?             @map("client_phone")
-  projectAddress     String?             @map("project_address")
-  projectType        String?             @map("project_type")
-  propertyType       String?             @map("property_type")
-  unitType           String?             @map("unit_type")
-  startDate          DateTime?           @map("start_date") @db.Date
-  endDate            DateTime?           @map("end_date") @db.Date
-  floorsCount        Int?                @map("floors_count")
-  unitsPerFloor      Int?                @map("units_per_floor")
-  totalUnits         Int?                @map("total_units")
-  subtotal           Decimal             @default(0) @db.Decimal(12, 2)
-  discountAmount     Decimal             @default(0) @map("discount_amount") @db.Decimal(12, 2)
-  taxAmount          Decimal             @default(0) @map("tax_amount") @db.Decimal(12, 2)
-  totalAmount        Decimal             @default(0) @map("total_amount") @db.Decimal(12, 2)
-  status             QuoteEstimateStatus @default(draft)
-  sentAt             DateTime?           @map("sent_at")
-  acceptedAt         DateTime?           @map("accepted_at")
-  rejectedAt         DateTime?           @map("rejected_at")
-  convertedProjectId String?             @unique @map("converted_project_id") @db.Uuid
-  createdById        String              @map("created_by_id") @db.Uuid
-  createdAt          DateTime            @default(now()) @map("created_at")
-  updatedAt          DateTime            @updatedAt @map("updated_at")
-  company            Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  convertedProject   Project?            @relation("QuoteEstimateConvertedProject", fields: [convertedProjectId], references: [id])
-  createdBy          User                @relation("QuoteEstimateCreator", fields: [createdById], references: [id])
+  id                 String                  @id @default(uuid()) @db.Uuid
+  quoteNumber        String                  @unique @map("quote_number")
+  companyId          String                  @map("company_id") @db.Uuid
+  projectName        String                  @map("project_name")
+  clientName         String                  @map("client_name")
+  clientEmail        String?                 @map("client_email")
+  clientPhone        String?                 @map("client_phone")
+  projectAddress     String?                 @map("project_address")
+  projectType        String?                 @map("project_type")
+  propertyType       String?                 @map("property_type")
+  unitType           String?                 @map("unit_type")
+  startDate          DateTime?               @map("start_date") @db.Date
+  endDate            DateTime?               @map("end_date") @db.Date
+  floorsCount        Int?                    @map("floors_count")
+  unitsPerFloor      Int?                    @map("units_per_floor")
+  totalUnits         Int?                    @map("total_units")
+  subtotal           Decimal                 @default(0) @db.Decimal(12, 2)
+  discountAmount     Decimal                 @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  taxAmount          Decimal                 @default(0) @map("tax_amount") @db.Decimal(12, 2)
+  totalAmount        Decimal                 @default(0) @map("total_amount") @db.Decimal(12, 2)
+  status             QuoteEstimateStatus     @default(draft)
+  sentAt             DateTime?               @map("sent_at")
+  acceptedAt         DateTime?               @map("accepted_at")
+  rejectedAt         DateTime?               @map("rejected_at")
+  convertedProjectId String?                 @unique @map("converted_project_id") @db.Uuid
+  createdById        String                  @map("created_by_id") @db.Uuid
+  createdAt          DateTime                @default(now()) @map("created_at")
+  updatedAt          DateTime                @updatedAt @map("updated_at")
+  company            Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  convertedProject   Project?                @relation("QuoteEstimateConvertedProject", fields: [convertedProjectId], references: [id])
+  createdBy          User                    @relation("QuoteEstimateCreator", fields: [createdById], references: [id])
   acceptances        QuoteAcceptance[]
+  changeOrders       ChangeOrder[]
+  materials          QuoteEstimateMaterial[]
+  subtasks           QuoteEstimateSubtask[]
   tasks              QuoteEstimateTask[]
 
   @@index([companyId])
@@ -394,24 +406,70 @@ model QuoteEstimate {
 }
 
 model QuoteEstimateTask {
-  id              String        @id @default(uuid()) @db.Uuid
-  quoteEstimateId String        @map("quote_estimate_id") @db.Uuid
+  id              String                  @id @default(uuid()) @db.Uuid
+  quoteEstimateId String                  @map("quote_estimate_id") @db.Uuid
   title           String
   description     String?
-  floorNumber     Int?          @map("floor_number")
-  unitName        String?       @map("unit_name")
-  quantity        Decimal       @default(1) @db.Decimal(12, 2)
+  floorNumber     Int?                    @map("floor_number")
+  unitName        String?                 @map("unit_name")
+  quantity        Decimal                 @default(1) @db.Decimal(12, 2)
   unit            String?
-  estimatedHours  Decimal?      @map("estimated_hours") @db.Decimal(12, 2)
-  unitPrice       Decimal       @default(0) @map("unit_price") @db.Decimal(12, 2)
-  totalPrice      Decimal       @default(0) @map("total_price") @db.Decimal(12, 2)
-  sortOrder       Int           @default(0) @map("sort_order")
-  createdAt       DateTime      @default(now()) @map("created_at")
-  updatedAt       DateTime      @updatedAt @map("updated_at")
-  quoteEstimate   QuoteEstimate @relation(fields: [quoteEstimateId], references: [id], onDelete: Cascade)
+  estimatedHours  Decimal?                @map("estimated_hours") @db.Decimal(12, 2)
+  unitPrice       Decimal                 @default(0) @map("unit_price") @db.Decimal(12, 2)
+  totalPrice      Decimal                 @default(0) @map("total_price") @db.Decimal(12, 2)
+  sortOrder       Int                     @default(0) @map("sort_order")
+  createdAt       DateTime                @default(now()) @map("created_at")
+  updatedAt       DateTime                @updatedAt @map("updated_at")
+  materials       QuoteEstimateMaterial[]
+  quoteEstimate   QuoteEstimate           @relation(fields: [quoteEstimateId], references: [id], onDelete: Cascade)
+  subtasks        QuoteEstimateSubtask[]
 
   @@index([quoteEstimateId])
   @@map("quote_estimate_tasks")
+}
+
+model QuoteEstimateSubtask {
+  id              String             @id @default(uuid()) @db.Uuid
+  quoteEstimateId String             @map("quote_estimate_id") @db.Uuid
+  quoteTaskId     String?            @map("quote_task_id") @db.Uuid
+  title           String
+  description     String?
+  floorNumber     Int?               @map("floor_number")
+  unitName        String?            @map("unit_name")
+  quantity        Decimal            @default(1) @db.Decimal(12, 2)
+  unit            String?
+  unitPrice       Decimal            @default(0) @map("unit_price") @db.Decimal(12, 2)
+  totalPrice      Decimal            @default(0) @map("total_price") @db.Decimal(12, 2)
+  sortOrder       Int                @default(0) @map("sort_order")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+  quoteEstimate   QuoteEstimate      @relation(fields: [quoteEstimateId], references: [id], onDelete: Cascade)
+  quoteTask       QuoteEstimateTask? @relation(fields: [quoteTaskId], references: [id], onDelete: SetNull)
+
+  @@index([quoteEstimateId])
+  @@index([quoteTaskId])
+  @@map("quote_estimate_subtasks")
+}
+
+model QuoteEstimateMaterial {
+  id              String             @id @default(uuid()) @db.Uuid
+  quoteEstimateId String             @map("quote_estimate_id") @db.Uuid
+  quoteTaskId     String?            @map("quote_task_id") @db.Uuid
+  name            String
+  description     String?
+  quantity        Decimal            @default(1) @db.Decimal(12, 2)
+  unit            String?
+  unitCost        Decimal            @default(0) @map("unit_cost") @db.Decimal(12, 2)
+  totalCost       Decimal            @default(0) @map("total_cost") @db.Decimal(12, 2)
+  sortOrder       Int                @default(0) @map("sort_order")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+  quoteEstimate   QuoteEstimate      @relation(fields: [quoteEstimateId], references: [id], onDelete: Cascade)
+  quoteTask       QuoteEstimateTask? @relation(fields: [quoteTaskId], references: [id], onDelete: SetNull)
+
+  @@index([quoteEstimateId])
+  @@index([quoteTaskId])
+  @@map("quote_estimate_materials")
 }
 
 model QuoteAcceptance {
@@ -648,21 +706,24 @@ model SubTaskUnit {
 }
 
 model ProjectInvoice {
-  id            String               @id @default(uuid()) @db.Uuid
-  projectId     String               @map("project_id") @db.Uuid
-  createdById   String               @map("created_by_id") @db.Uuid
-  invoiceNumber String               @unique @map("invoice_number")
-  status        ProjectInvoiceStatus @default(draft)
-  startDate     DateTime             @map("start_date")
-  endDate       DateTime             @map("end_date")
-  billableUnits Int                  @default(0) @map("billable_units")
-  subtotal      Float                @default(0)
-  total         Float                @default(0)
+  id            String                     @id @default(uuid()) @db.Uuid
+  projectId     String                     @map("project_id") @db.Uuid
+  createdById   String                     @map("created_by_id") @db.Uuid
+  invoiceNumber String                     @unique @map("invoice_number")
+  status        ProjectInvoiceStatus       @default(draft)
+  startDate     DateTime                   @map("start_date")
+  endDate       DateTime                   @map("end_date")
+  billableUnits Int                        @default(0) @map("billable_units")
+  subtotal      Float                      @default(0)
+  total         Float                      @default(0)
   notes         String?
-  createdAt     DateTime             @default(now()) @map("created_at")
-  updatedAt     DateTime             @updatedAt @map("updated_at")
-  createdBy     User                 @relation("ProjectInvoiceCreator", fields: [createdById], references: [id])
-  project       Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  issuedAt      DateTime?                  @map("issued_at")
+  paidAt        DateTime?                  @map("paid_at")
+  createdAt     DateTime                   @default(now()) @map("created_at")
+  updatedAt     DateTime                   @updatedAt @map("updated_at")
+  createdBy     User                       @relation("ProjectInvoiceCreator", fields: [createdById], references: [id])
+  project       Project                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  allocations   InvoicePaymentAllocation[]
   lines         ProjectInvoiceLine[]
 
   @@index([projectId, startDate, endDate])
@@ -691,6 +752,92 @@ model ProjectInvoiceLine {
   @@index([invoiceId])
   @@index([subTaskId])
   @@map("project_invoice_lines")
+}
+
+model ChangeOrder {
+  id              String            @id @default(uuid()) @db.Uuid
+  projectId       String            @map("project_id") @db.Uuid
+  createdById     String            @map("created_by_id") @db.Uuid
+  quoteEstimateId String?           @map("quote_estimate_id") @db.Uuid
+  number          String            @unique
+  title           String
+  description     String?
+  status          ChangeOrderStatus @default(approved)
+  subtotal        Decimal           @default(0) @db.Decimal(12, 2)
+  total           Decimal           @default(0) @db.Decimal(12, 2)
+  approvedAt      DateTime?         @map("approved_at")
+  rejectedAt      DateTime?         @map("rejected_at")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+  createdBy       User              @relation("ChangeOrderCreator", fields: [createdById], references: [id])
+  project         Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  quoteEstimate   QuoteEstimate?    @relation(fields: [quoteEstimateId], references: [id], onDelete: SetNull)
+  items           ChangeOrderItem[]
+
+  @@index([projectId])
+  @@index([createdById])
+  @@index([status])
+  @@map("change_orders")
+}
+
+model ChangeOrderItem {
+  id            String      @id @default(uuid()) @db.Uuid
+  changeOrderId String      @map("change_order_id") @db.Uuid
+  taskId        String?     @map("task_id") @db.Uuid
+  subTaskId     String?     @map("sub_task_id") @db.Uuid
+  title         String
+  description   String?
+  quantity      Decimal     @default(1) @db.Decimal(12, 2)
+  unit          String?
+  unitValue     Decimal     @default(0) @map("unit_value") @db.Decimal(12, 2)
+  lineTotal     Decimal     @default(0) @map("line_total") @db.Decimal(12, 2)
+  createdAt     DateTime    @default(now()) @map("created_at")
+  changeOrder   ChangeOrder @relation(fields: [changeOrderId], references: [id], onDelete: Cascade)
+
+  @@index([changeOrderId])
+  @@index([taskId])
+  @@index([subTaskId])
+  @@map("change_order_items")
+}
+
+model Payment {
+  id                String                     @id @default(uuid()) @db.Uuid
+  projectId         String                     @map("project_id") @db.Uuid
+  recordedById      String                     @map("recorded_by_id") @db.Uuid
+  paymentNumber     String                     @unique @map("payment_number")
+  amount            Decimal                    @db.Decimal(12, 2)
+  allocatedAmount   Decimal                    @default(0) @map("allocated_amount") @db.Decimal(12, 2)
+  unallocatedAmount Decimal                    @default(0) @map("unallocated_amount") @db.Decimal(12, 2)
+  method            PaymentMethod              @default(other)
+  status            PaymentStatus              @default(recorded)
+  paidAt            DateTime                   @map("paid_at")
+  notes             String?
+  createdAt         DateTime                   @default(now()) @map("created_at")
+  updatedAt         DateTime                   @updatedAt @map("updated_at")
+  allocations       InvoicePaymentAllocation[]
+  project           Project                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  recordedBy        User                       @relation("PaymentRecorder", fields: [recordedById], references: [id])
+
+  @@index([projectId, paidAt])
+  @@index([recordedById])
+  @@index([status])
+  @@map("payments")
+}
+
+model InvoicePaymentAllocation {
+  id          String         @id @default(uuid()) @db.Uuid
+  paymentId   String         @map("payment_id") @db.Uuid
+  invoiceId   String         @map("invoice_id") @db.Uuid
+  amount      Decimal        @db.Decimal(12, 2)
+  allocatedAt DateTime       @default(now()) @map("allocated_at")
+  notes       String?
+  invoice     ProjectInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  payment     Payment        @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@unique([paymentId, invoiceId])
+  @@index([invoiceId])
+  @@index([paymentId])
+  @@map("invoice_payment_allocations")
 }
 
 model TaskFloor {
@@ -1248,6 +1395,12 @@ enum ProjectStatus {
   delayed
 }
 
+enum ProjectFinancialStatus {
+  unpaid
+  partially_paid
+  fully_paid
+}
+
 enum FloorStatus {
   pending
   in_progress
@@ -1294,9 +1447,36 @@ enum QuoteEstimateStatus {
 
 enum ProjectInvoiceStatus {
   draft
+  issued
   sent
+  partially_paid
   paid
   cancelled
+  voided
+}
+
+enum ChangeOrderStatus {
+  draft
+  pending
+  approved
+  rejected
+  cancelled
+}
+
+enum PaymentStatus {
+  recorded
+  partially_allocated
+  allocated
+  voided
+}
+
+enum PaymentMethod {
+  cash
+  cheque
+  bank_transfer
+  card
+  e_transfer
+  other
 }
 
 enum PayrollStatus {

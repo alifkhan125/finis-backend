@@ -8,10 +8,12 @@ import {
   Body,
   Param,
   Query,
+  Res,
   UseGuards,
   UseInterceptors,
   UploadedFile,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { ProjectService } from './project.service';
@@ -21,6 +23,13 @@ import { Roles } from '../../auth/decorators/roles.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { UserRole } from '../../generated/prisma/client';
 import { StorageService } from '../../storage/storage.service';
+import { ProjectStatementService } from '../invoices/project-statement.service';
+import { ProjectInvoicesService } from '../invoices/invoices.service';
+import {
+  AllocatePaymentDto,
+  RecordPaymentDto,
+  VoidPaymentDto,
+} from '../invoices/dto/invoice.dto';
 import {
   CreateProjectDto,
   UpdateProjectDto,
@@ -39,6 +48,8 @@ export class ProjectController {
   constructor(
     private projectService: ProjectService,
     private readonly storageService: StorageService,
+    private readonly statementService: ProjectStatementService,
+    private readonly invoicesService: ProjectInvoicesService,
   ) {}
   // ─── PROJECTS ──────────────────────────────────────────────────────────────
 
@@ -655,4 +666,144 @@ export class ProjectController {
   ) {
     return this.projectService.generateShareLink(projectId, userId, userRole);
   }
+
+  // ─── FINANCIAL STATEMENT & PAYMENTS ──────────────────────────────────────
+
+  /** GET /admin/projects/:id/statement */
+  @Get(':id/statement')
+  @Roles(UserRole.admin, UserRole.super_admin)
+  getProjectStatement(
+    @Param('id') projectId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: string,
+  ) {
+    return this.statementService.getProjectStatement(
+      projectId,
+      userId,
+      userRole,
+    );
+  }
+
+  /** GET /admin/projects/:id/statement/export */
+  @Get(':id/statement/export')
+  @Roles(UserRole.admin, UserRole.super_admin)
+  async exportProjectStatement(
+    @Param('id') projectId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: string,
+    @Res() res: Response,
+  ) {
+    const { buffer, filename } =
+      await this.statementService.exportStatementPdf(
+        projectId,
+        userId,
+        userRole,
+      );
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${filename}"`,
+    );
+    return res.send(buffer);
+  }
+
+  /** GET /admin/projects/:id/payments */
+  @Get(':id/payments')
+  @Roles(UserRole.admin, UserRole.super_admin)
+  getProjectPayments(
+    @Param('id') projectId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: string,
+  ) {
+    return this.invoicesService.listProjectPayments(
+      projectId,
+      userId,
+      userRole,
+    );
+  }
+
+  /** POST /admin/projects/:id/payments */
+  @Post(':id/payments')
+  @Roles(UserRole.admin, UserRole.super_admin)
+  recordProjectPayment(
+    @Param('id') projectId: string,
+    @Body() dto: RecordPaymentDto,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: string,
+  ) {
+    dto.projectId = projectId;
+    return this.invoicesService.recordPayment(dto, userId, userRole);
+  }
+
+  /** POST /admin/projects/:id/payments/:paymentId/allocate */
+  @Post(':id/payments/:paymentId/allocate')
+  @Roles(UserRole.admin, UserRole.super_admin)
+  allocateProjectPayment(
+    @Param('id') projectId: string,
+    @Param('paymentId') paymentId: string,
+    @Body() dto: AllocatePaymentDto,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: string,
+  ) {
+    dto.paymentId = paymentId;
+    return this.invoicesService.allocatePayment(dto, userId, userRole);
+  }
+
+  /** POST /admin/projects/:id/payments/:paymentId/void */
+  @Post(':id/payments/:paymentId/void')
+  @Roles(UserRole.admin, UserRole.super_admin)
+  voidProjectPayment(
+    @Param('id') _projectId: string,
+    @Param('paymentId') paymentId: string,
+    @Body() dto: VoidPaymentDto,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: string,
+  ) {
+    return this.invoicesService.voidPayment(
+      paymentId,
+      dto.reason,
+      userId,
+      userRole,
+    );
+  }
+
+  /** GET /admin/projects/:id/payments/:paymentId/receipt */
+  @Get(':id/payments/:paymentId/receipt')
+  @Roles(UserRole.admin, UserRole.super_admin)
+  async exportProjectPaymentReceipt(
+    @Param('id') _projectId: string,
+    @Param('paymentId') paymentId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: string,
+    @Res() res: Response,
+  ) {
+    const { buffer, filename } =
+      await this.invoicesService.exportPaymentReceiptPdf(
+        paymentId,
+        userId,
+        userRole,
+      );
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${filename}"`,
+    );
+    return res.send(buffer);
+  }
+
+  /** GET /admin/projects/:id/profitability */
+  @Get(':id/profitability')
+  @Roles(UserRole.admin, UserRole.super_admin)
+  getProjectProfitability(
+    @Param('id') projectId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: string,
+  ) {
+    return this.invoicesService.getProjectProfitability(
+      projectId,
+      userId,
+      userRole,
+    );
+  }
 }
+

@@ -14,7 +14,7 @@ import {
   ReviewTaskDto,
   CreateSubTaskDto,
 } from './dto/task.dto';
-import { UserRole, TaskPriority } from '../../generated/prisma/client';
+import { Prisma, UserRole, TaskPriority } from '../../generated/prisma/client';
 
 type AuthUser = {
   id: string;
@@ -53,6 +53,75 @@ export class TaskService {
       throw new BadRequestException('Price must be a non-negative number');
     }
     return Math.round(numericPrice * 100) / 100;
+  }
+
+  private toMoneyDecimal(value: number) {
+    return new Prisma.Decimal(value.toFixed(2));
+  }
+
+  private async nextChangeOrderNumber(tx: Prisma.TransactionClient) {
+    const year = new Date().getFullYear();
+    const prefix = `CO-${year}-`;
+    const latest = await tx.changeOrder.findFirst({
+      where: { number: { startsWith: prefix } },
+      orderBy: { createdAt: 'desc' },
+      select: { number: true },
+    });
+    const current = Number(latest?.number.replace(prefix, '') || 0);
+    return `${prefix}${String(current + 1).padStart(5, '0')}`;
+  }
+
+  private async createSubTaskChangeOrder(
+    tx: Prisma.TransactionClient,
+    params: {
+      subTaskId: string;
+      taskId: string;
+      projectId: string;
+      createdById: string;
+      title: string;
+      description?: string | null;
+      price: number;
+      notes?: string | null;
+    },
+  ) {
+    if (params.price <= 0) return null;
+
+    const amount = this.toMoneyDecimal(params.price);
+    const changeOrder = await tx.changeOrder.create({
+      data: {
+        projectId: params.projectId,
+        createdById: params.createdById,
+        number: await this.nextChangeOrderNumber(tx),
+        title: `Extra work: ${params.title}`,
+        description: params.notes ?? params.description ?? null,
+        status: 'approved',
+        subtotal: amount,
+        total: amount,
+        approvedAt: new Date(),
+        items: {
+          create: {
+            taskId: params.taskId,
+            subTaskId: params.subTaskId,
+            title: params.title,
+            description: params.description ?? null,
+            quantity: this.toMoneyDecimal(1),
+            unit: 'each',
+            unitValue: amount,
+            lineTotal: amount,
+          },
+        },
+      },
+    });
+
+    await tx.project.update({
+      where: { id: params.projectId },
+      data: {
+        totalContractAmount: { increment: amount },
+        contractBalance: { increment: amount },
+      },
+    });
+
+    return changeOrder;
   }
 
   private assertCanWriteTaskPrice(userRole: string, price: unknown) {
@@ -2876,7 +2945,10 @@ export class TaskService {
 
     const subTask = await this.prisma.subTask.findFirst({
       where: { id: subTaskId, taskId },
-      include: { taskAssignee: true },
+      include: {
+        taskAssignee: true,
+        task: { select: { id: true, title: true, projectId: true } },
+      },
     });
 
     if (!subTask) throw new NotFoundException('Sub task not found');
@@ -2892,18 +2964,42 @@ export class TaskService {
       dto.reviewDecision === 'approved' && this.canManageTaskPrice(userRole)
         ? this.normalizePrice(dto.price)
         : undefined;
+    const approvedPrice =
+      dto.reviewDecision === 'approved' && this.canManageTaskPrice(userRole)
+        ? (normalizedPrice ?? this.normalizePrice(subTask.price) ?? 0)
+        : 0;
 
-    await this.prisma.subTask.update({
-      where: { id: subTaskId },
-      data: {
-        approvalDecision: nextStatus as any,
-        approvalReviewedBy: userId,
-        approvalReviewedAt: new Date(),
-        approvalNotes: reviewText,
-        approvalAttachmentUrl: dto.reviewAttachmentUrl ?? null,
-        status: dto.reviewDecision === 'approved' ? 'pending' : 'in_active',
-        ...(normalizedPrice !== undefined ? { price: normalizedPrice } : {}),
-      },
+    const reviewedSubTask = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.subTask.update({
+        where: { id: subTaskId },
+        data: {
+          approvalDecision: nextStatus as any,
+          approvalReviewedBy: userId,
+          approvalReviewedAt: new Date(),
+          approvalNotes: reviewText,
+          approvalAttachmentUrl: dto.reviewAttachmentUrl ?? null,
+          status: dto.reviewDecision === 'approved' ? 'pending' : 'in_active',
+          ...(normalizedPrice !== undefined ? { price: normalizedPrice } : {}),
+        },
+      });
+
+      if (
+        dto.reviewDecision === 'approved' &&
+        approvedPrice > 0
+      ) {
+        await this.createSubTaskChangeOrder(tx, {
+          subTaskId,
+          taskId,
+          projectId: subTask.task.projectId,
+          createdById: userId,
+          title: subTask.title,
+          description: subTask.description,
+          price: approvedPrice,
+          notes: reviewText,
+        });
+      }
+
+      return updated;
     });
 
     if (subTask.taskAssignee?.userId) {
@@ -2920,13 +3016,8 @@ export class TaskService {
       });
     }
 
-    const parentTask = await this.prisma.task.findUnique({
-      where: { id: taskId },
-      select: { projectId: true },
-    });
-
     await this.notifyProjectRecipients(
-      parentTask?.projectId ?? taskId,
+      subTask.task.projectId,
       [UserRole.admin, UserRole.manager],
       {
         title:
@@ -2941,7 +3032,10 @@ export class TaskService {
       [userId, subTask.taskAssignee?.userId].filter(Boolean),
     );
 
-    return { message: `Sub task ${dto.reviewDecision}` };
+    return {
+      message: `Sub task ${dto.reviewDecision}`,
+      subTask: this.toSimpleSubTaskResponse(reviewedSubTask),
+    };
   }
 
   async reviewTaskReport(

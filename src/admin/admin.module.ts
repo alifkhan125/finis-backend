@@ -30,8 +30,11 @@ import { PayrollService } from './payroll/payroll.service';
 import { AdminReportsController } from './reports/reports.controller';
 import { ProjectInvoicesController } from './invoices/invoices.controller';
 import { ProjectInvoicesService } from './invoices/invoices.service';
+import { ProjectStatementService } from './invoices/project-statement.service';
 import { ReimbursementExpensesController } from './reimbursement-expenses/reimbursement-expenses.controller';
 import { ReimbursementExpensesService } from './reimbursement-expenses/reimbursement-expenses.service';
+import { QuoteEstimatesController } from './quote-estimates/quote-estimates.controller';
+import { QuoteEstimatesService } from './quote-estimates/quote-estimates.service';
 import { ReportsService } from '../super-admin/reports/reports.service';
 
 @Module({
@@ -49,6 +52,7 @@ import { ReportsService } from '../super-admin/reports/reports.service';
     AdminReportsController,
     ProjectInvoicesController,
     ReimbursementExpensesController,
+    QuoteEstimatesController,
   ],
   providers: [
     DashboardService,
@@ -61,7 +65,9 @@ import { ReportsService } from '../super-admin/reports/reports.service';
     PayrollService,
     ReportsService,
     ProjectInvoicesService,
+    ProjectStatementService,
     ReimbursementExpensesService,
+    QuoteEstimatesService,
   ],
   exports: [
     CompanyService,
@@ -69,6 +75,8 @@ import { ReportsService } from '../super-admin/reports/reports.service';
     InventoryService,
     PayrollService,
     GeofencingGateway,
+    ProjectInvoicesService,
+    ProjectStatementService,
   ],
 })
 export class AdminModule {}
