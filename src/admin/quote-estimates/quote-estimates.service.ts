@@ -144,6 +144,11 @@ export class QuoteEstimatesService {
           (task.floorNumber != null || task.unitName
             ? `floor_${task.floorNumber ?? 'any'}_unit_${task.unitName ?? 'any'}`
             : null),
+        locationMode: task.locationMode ?? 'all',
+        selectedFloorNumbers: task.selectedFloorNumbers ?? [],
+        selectedUnitNames: (task.selectedUnitNames ?? []).map((name) => name.trim()).filter(Boolean),
+        plannedLocationKeys: task.plannedLocationKeys ?? [],
+        scopeChecklist: (task.scopeChecklist ?? []).map((item) => item.trim()).filter(Boolean),
         quantity: this.toDecimal(quantity),
         unit: this.normalizeText(task.unit),
         estimatedHours:
@@ -218,13 +223,13 @@ export class QuoteEstimatesService {
   private async generateQuoteNumber() {
     const year = new Date().getFullYear();
     const prefix = `QE-${year}-`;
-    const latest = await this.prisma.quoteEstimate.findFirst({
-      where: { quoteNumber: { startsWith: prefix } },
-      orderBy: { createdAt: 'desc' },
-      select: { quoteNumber: true },
-    });
-    const current = Number(latest?.quoteNumber.replace(prefix, '') || 0);
-    return `${prefix}${String(current + 1).padStart(5, '0')}`;
+    // A timestamp plus a random suffix prevents duplicate numbers when the
+    // dashboard saves multiple quote drafts concurrently.
+    const timestamp = Date.now().toString(36).toUpperCase();
+    const suffix = Math.floor(Math.random() * 1000)
+      .toString()
+      .padStart(3, '0');
+    return `${prefix}${timestamp}-${suffix}`;
   }
 
   private async getQuoteOrThrow(id: string) {
@@ -347,6 +352,19 @@ export class QuoteEstimatesService {
         plannedFloorLabel: task.plannedFloorLabel ?? undefined,
         plannedUnitLabel: task.plannedUnitLabel ?? undefined,
         plannedLocationKey: task.plannedLocationKey ?? undefined,
+        locationMode: (task.locationMode as 'all' | 'selected' | undefined) ?? undefined,
+        selectedFloorNumbers: Array.isArray(task.selectedFloorNumbers)
+          ? (task.selectedFloorNumbers as number[])
+          : undefined,
+        selectedUnitNames: Array.isArray(task.selectedUnitNames)
+          ? (task.selectedUnitNames as string[])
+          : undefined,
+        plannedLocationKeys: Array.isArray(task.plannedLocationKeys)
+          ? (task.plannedLocationKeys as string[])
+          : undefined,
+        scopeChecklist: Array.isArray(task.scopeChecklist)
+          ? (task.scopeChecklist as string[])
+          : undefined,
         quantity: Number(task.quantity),
         unit: task.unit ?? undefined,
         estimatedHours:
@@ -767,11 +785,8 @@ export class QuoteEstimatesService {
             },
           });
           createdFloors.push({ id: floor.id, floorNumber });
-          for (
-            let unitIndex = unitStart;
-            unitIndex < unitStart + existing.unitsPerFloor;
-            unitIndex++
-          ) {
+          for (let unitOffset = 0; unitOffset < existing.unitsPerFloor; unitOffset++) {
+            const unitIndex = unitStart + (floorNumber - floorStart) * 100 + unitOffset;
             const unit = await tx.unit.create({
               data: {
                 floorId: floor.id,
@@ -862,18 +877,54 @@ export class QuoteEstimatesService {
             );
           })
         : units.find((unit) => !matchedFloor || unit.floorId === matchedFloor.id) ?? units[0];
-      const taskUnits = matchedUnit
+      const plannedLocationKeys = Array.isArray(quoteTask.plannedLocationKeys)
+        ? (quoteTask.plannedLocationKeys as string[])
+            .map((key) => key.toLowerCase())
+            .filter(Boolean)
+        : [];
+      const taskUnits = plannedLocationKeys.length
+        ? units.filter((unit) => {
+            const floor = floors.find((item) => item.id === unit.floorId);
+            return Boolean(
+              floor &&
+                plannedLocationKeys.includes(
+                  `floor_${floor.floorNumber}_unit_${unit.name.toLowerCase()}`,
+                ),
+            );
+          })
+        : matchedUnit
         ? [matchedUnit]
-        : matchedFloor
-          ? units.filter((unit) => unit.floorId === matchedFloor.id)
-          : units;
+        : (() => {
+            const selectedFloors = Array.isArray(quoteTask.selectedFloorNumbers)
+              ? (quoteTask.selectedFloorNumbers as number[])
+              : [];
+            const selectedUnits = Array.isArray(quoteTask.selectedUnitNames)
+              ? (quoteTask.selectedUnitNames as string[]).map((name) => name.toLowerCase())
+              : [];
+            return units.filter((unit) => {
+              const floor = floors.find((item) => item.id === unit.floorId);
+              const floorMatches = selectedFloors.length
+                ? Boolean(floor && selectedFloors.includes(floor.floorNumber))
+                : matchedFloor
+                  ? unit.floorId === matchedFloor.id
+                  : true;
+              const unitMatches = selectedUnits.length
+                ? selectedUnits.includes(unit.name.toLowerCase())
+                : true;
+              return floorMatches && unitMatches;
+            });
+          })();
+
+      const taskFloorIds = Array.from(
+        new Set(taskUnits.map((unit) => unit.floorId)),
+      );
 
       const taskPrice = Number(quoteTask.totalPrice || quoteTask.unitPrice || 0);
 
       const task = await tx.task.create({
         data: {
           projectId,
-          floorId: matchedFloor?.id ?? null,
+          floorId: taskFloorIds.length === 1 ? taskFloorIds[0] : null,
           unitId: matchedUnit?.id ?? null,
           createdBy: userId,
           title: quoteTask.title,
@@ -889,13 +940,14 @@ export class QuoteEstimatesService {
           estimatedHours:
             quoteTask.estimatedHours === null
               ? null
-              : Math.round(Number(quoteTask.estimatedHours)),
+              : Math.round(Number(quoteTask.estimatedHours) * Math.max(taskUnits.length, 1)),
         },
       });
 
-      if (matchedFloor) {
-        await tx.taskFloor.create({
-          data: { taskId: task.id, floorId: matchedFloor.id },
+      if (taskFloorIds.length) {
+        await tx.taskFloor.createMany({
+          data: taskFloorIds.map((floorId) => ({ taskId: task.id, floorId })),
+          skipDuplicates: true,
         });
       }
 
@@ -928,7 +980,7 @@ export class QuoteEstimatesService {
             estimatedHours:
               quoteTask.estimatedHours === null
                 ? null
-                : Math.round(Number(quoteTask.estimatedHours) / taskUnits.length),
+                : Math.round(Number(quoteTask.estimatedHours)),
           })),
         });
       }

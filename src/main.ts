@@ -1,4 +1,5 @@
-import './common/timezone';
+// Set the process timezone before Nest initializes dates and schedulers.
+process.env.TZ = process.env.TZ ?? 'America/Toronto';
 
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';

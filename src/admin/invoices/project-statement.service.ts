@@ -74,6 +74,17 @@ export class ProjectStatementService {
         },
         tasks: {
           include: {
+            unit: {
+              select: {
+                id: true,
+                name: true,
+                floor: { select: { name: true } },
+              },
+            },
+            floor: { select: { name: true } },
+            taskFloors: {
+              include: { floor: { select: { name: true } } },
+            },
             subTasks: {
               include: {
                 unit: {
@@ -98,6 +109,20 @@ export class ProjectStatementService {
                 },
               },
               orderBy: { createdAt: 'asc' },
+            },
+            taskUnits: {
+              include: {
+                unit: {
+                  select: {
+                    id: true,
+                    name: true,
+                    floor: { select: { name: true } },
+                  },
+                },
+              },
+            },
+            taskAssignees: {
+              select: { user: { select: { fullName: true } } },
             },
           },
           orderBy: { createdAt: 'asc' },
@@ -157,39 +182,49 @@ export class ProjectStatementService {
     const allSubTasks: any[] = [];
 
     for (const task of project.tasks) {
-      for (const sub of task.subTasks) {
-        totalSubTasksCount++;
-        const price = sub.price ?? 0;
-        const isCompletedApproved =
-          sub.status === 'completed' && sub.approvalDecision === 'approved';
+      totalSubTasksCount++;
+      const price = task.price ?? 0;
+      const isCompletedApproved =
+        task.status === 'completed' && task.approvalDecision === 'approved';
 
-        if (isCompletedApproved) {
-          completedWorkValue += price;
-          completedSubTasksCount++;
-        } else {
-          incompleteWorkValue += price;
-        }
-
-        allSubTasks.push({
-          id: sub.id,
-          taskId: task.id,
-          taskTitle: task.title,
-          title: sub.title,
-          status: sub.status,
-          approvalDecision: sub.approvalDecision,
-          price,
-          unitName: sub.unit?.name ?? null,
-          floorName: sub.unit?.floor?.name ?? null,
-          workerName: sub.taskAssignee?.user?.fullName ?? null,
-          completedAt: sub.completedAt,
-          isInvoiced: sub.invoiceLines.length > 0,
-          invoices: sub.invoiceLines.map((il: any) => ({
-            invoiceId: il.invoiceId,
-            invoiceNumber: il.invoice.invoiceNumber,
-            status: il.invoice.status,
-          })),
-        });
+      if (isCompletedApproved) {
+        completedWorkValue += price;
+        completedSubTasksCount++;
+      } else {
+        incompleteWorkValue += price;
       }
+
+      const taskUnitLocations = task.taskUnits.map((taskUnit: any) => ({
+        unitName: taskUnit.unit?.name ?? null,
+        floorName: taskUnit.unit?.floor?.name ?? null,
+      }));
+      const fallbackLocations = [
+        task.unit
+          ? { unitName: task.unit.name, floorName: task.unit.floor?.name ?? task.floor?.name ?? null }
+          : null,
+        ...task.taskFloors.map((taskFloor: any) => ({
+          unitName: null,
+          floorName: taskFloor.floor?.name ?? null,
+        })),
+      ].filter(Boolean) as Array<{ unitName: string | null; floorName: string | null }>;
+      const locations = taskUnitLocations.length ? taskUnitLocations : fallbackLocations;
+      const firstLocation = locations[0];
+      allSubTasks.push({
+        id: task.id,
+        taskId: task.id,
+        taskTitle: task.title,
+        title: task.title,
+        status: task.status,
+        approvalDecision: task.approvalDecision,
+        price,
+        unitName: locations.map((location) => location.unitName).filter(Boolean).join(', ') || null,
+        floorName: locations.map((location) => location.floorName).filter(Boolean).filter((value, index, values) => values.indexOf(value) === index).join(', ') || firstLocation?.floorName || null,
+        locationLabel: locations.map((location) => [location.floorName, location.unitName].filter(Boolean).join(' / ')).filter(Boolean).join(', ') || 'General',
+        workerName: task.taskAssignees[0]?.user?.fullName ?? null,
+        completedAt: task.completionReviewedAt,
+        isInvoiced: false,
+        invoices: [],
+      });
     }
 
     if (
@@ -457,7 +492,7 @@ export class ProjectStatementService {
       const tableHeaderY = doc.y;
       doc.rect(36, tableHeaderY - 2, 523, 16).fill('#E2E8F0');
       doc.fontSize(8).font('Helvetica-Bold').fillColor('#334155');
-      doc.text('ITEM / SUBTASK', 46, tableHeaderY + 3);
+      doc.text('MAIN TASK', 46, tableHeaderY + 3);
       doc.text('LOCATION', 260, tableHeaderY + 3);
       doc.text('STATUS', 380, tableHeaderY + 3);
       doc.text('VALUE', 480, tableHeaderY + 3, { width: 70, align: 'right' });
@@ -473,33 +508,36 @@ export class ProjectStatementService {
       } else {
         data.subTasks.slice(0, 30).forEach((item, index) => {
           let itemY = doc.y;
-          if (itemY > 740) {
+          const titleText = `${index + 1}. ${item.title}`;
+          const unitText = item.unitName || 'General';
+          doc.font('Helvetica').fontSize(8);
+          const titleHeight = doc.heightOfString(titleText, { width: 198 });
+          const unitHeight = doc.heightOfString(unitText, { width: 110 });
+          const rowHeight = Math.max(16, titleHeight, unitHeight) + 4;
+          if (itemY + rowHeight > 740) {
             doc.addPage();
             itemY = 46;
             // re-draw table header on new page
             doc.rect(36, itemY - 2, 523, 16).fill('#E2E8F0');
             doc.fontSize(8).font('Helvetica-Bold').fillColor('#334155');
-            doc.text('ITEM / SUBTASK', 46, itemY + 3);
+            doc.text('MAIN TASK', 46, itemY + 3);
             doc.text('LOCATION', 260, itemY + 3);
             doc.text('STATUS', 380, itemY + 3);
             doc.text('VALUE', 480, itemY + 3, { width: 70, align: 'right' });
             itemY += 18;
           }
-          const loc =
-            [item.floorName, item.unitName].filter(Boolean).join(' / ') ||
-            'General';
           const isDone = item.status === 'completed';
 
           if (index % 2 === 1) {
-            doc.rect(36, itemY - 2, 523, 15).fill('#F8FAFC');
+            doc.rect(36, itemY - 2, 523, rowHeight).fill('#F8FAFC');
           }
 
           doc
             .fillColor('#1E293B')
             .font('Helvetica')
             .fontSize(8)
-            .text(`${index + 1}. ${item.title.substring(0, 38)}`, 46, itemY + 2);
-          doc.fillColor('#64748B').text(loc.substring(0, 22), 260, itemY + 2);
+            .text(titleText, 46, itemY + 2, { width: 198 });
+          doc.fillColor('#64748B').text(unitText, 260, itemY + 2, { width: 110 });
           doc
             .fillColor(isDone ? '#16A34A' : '#D97706')
             .font('Helvetica-Bold')
@@ -511,7 +549,7 @@ export class ProjectStatementService {
               width: 70,
               align: 'right',
             });
-          doc.y = itemY + 16;
+          doc.y = itemY + rowHeight;
         });
 
         if (data.subTasks.length > 30) {
