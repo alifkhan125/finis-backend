@@ -135,6 +135,15 @@ export class QuoteEstimatesService {
         description: this.normalizeText(task.description),
         floorNumber: task.floorNumber ?? null,
         unitName: this.normalizeText(task.unitName),
+        plannedFloorLabel: this.normalizeText(task.plannedFloorLabel) ??
+          (task.floorNumber != null ? `Floor ${task.floorNumber}` : null),
+        plannedUnitLabel: this.normalizeText(task.plannedUnitLabel) ??
+          (task.unitName ? `Unit ${task.unitName}` : null),
+        plannedLocationKey:
+          this.normalizeText(task.plannedLocationKey) ??
+          (task.floorNumber != null || task.unitName
+            ? `floor_${task.floorNumber ?? 'any'}_unit_${task.unitName ?? 'any'}`
+            : null),
         quantity: this.toDecimal(quantity),
         unit: this.normalizeText(task.unit),
         estimatedHours:
@@ -167,6 +176,43 @@ export class QuoteEstimatesService {
       select: { id: true },
     });
     if (!company) throw new BadRequestException('Invalid company ID');
+  }
+
+  private resolvePlanningRange(input: {
+    floorStart?: number | null;
+    floorEnd?: number | null;
+    unitStart?: number | null;
+    unitEnd?: number | null;
+    floorsCount?: number | null;
+    unitsPerFloor?: number | null;
+  }) {
+    const hasFloorRange = input.floorStart != null || input.floorEnd != null;
+    const hasUnitRange = input.unitStart != null || input.unitEnd != null;
+    if (hasFloorRange && (input.floorStart == null || input.floorEnd == null || input.floorEnd < input.floorStart)) {
+      throw new BadRequestException('Floor start/end range is invalid');
+    }
+    if (hasUnitRange && (input.unitStart == null || input.unitEnd == null || input.unitEnd < input.unitStart)) {
+      throw new BadRequestException('Unit start/end range is invalid');
+    }
+    const floorStart = input.floorStart ?? 1;
+    const unitStart = input.unitStart ?? 1;
+    const floorsCount = hasFloorRange
+      ? input.floorEnd! - input.floorStart! + 1
+      : input.floorsCount ?? null;
+    const unitsPerFloor = hasUnitRange
+      ? input.unitEnd! - input.unitStart! + 1
+      : input.unitsPerFloor ?? null;
+    return {
+      floorStart: hasFloorRange ? input.floorStart : null,
+      floorEnd: hasFloorRange ? input.floorEnd : null,
+      unitStart: hasUnitRange ? input.unitStart : null,
+      unitEnd: hasUnitRange ? input.unitEnd : null,
+      floorsCount,
+      unitsPerFloor,
+      totalUnits: floorsCount && unitsPerFloor ? floorsCount * unitsPerFloor : null,
+      resolvedFloorStart: floorStart,
+      resolvedUnitStart: unitStart,
+    };
   }
 
   private async generateQuoteNumber() {
@@ -202,10 +248,7 @@ export class QuoteEstimatesService {
       dto.discountAmount ?? 0,
       dto.taxAmount ?? 0,
     );
-    const totalUnits =
-      dto.floorsCount && dto.unitsPerFloor
-        ? dto.floorsCount * dto.unitsPerFloor
-        : null;
+    const planning = this.resolvePlanningRange(dto);
 
     const quote = await this.prisma.quoteEstimate.create({
       data: {
@@ -221,9 +264,13 @@ export class QuoteEstimatesService {
         unitType: this.normalizeText(dto.unitType),
         startDate: dto.startDate ? new Date(dto.startDate) : null,
         endDate: dto.endDate ? new Date(dto.endDate) : null,
-        floorsCount: dto.floorsCount ?? null,
-        unitsPerFloor: dto.unitsPerFloor ?? null,
-        totalUnits,
+        floorsCount: planning.floorsCount,
+        unitsPerFloor: planning.unitsPerFloor,
+        floorStart: planning.floorStart,
+        floorEnd: planning.floorEnd,
+        unitStart: planning.unitStart,
+        unitEnd: planning.unitEnd,
+        totalUnits: planning.totalUnits,
         subtotal: totals.subtotal,
         discountAmount: totals.discountAmount,
         taxAmount: totals.taxAmount,
@@ -297,6 +344,9 @@ export class QuoteEstimatesService {
         description: task.description ?? undefined,
         floorNumber: task.floorNumber ?? undefined,
         unitName: task.unitName ?? undefined,
+        plannedFloorLabel: task.plannedFloorLabel ?? undefined,
+        plannedUnitLabel: task.plannedUnitLabel ?? undefined,
+        plannedLocationKey: task.plannedLocationKey ?? undefined,
         quantity: Number(task.quantity),
         unit: task.unit ?? undefined,
         estimatedHours:
@@ -309,10 +359,17 @@ export class QuoteEstimatesService {
       dto.discountAmount ?? Number(existing.discountAmount),
       dto.taxAmount ?? Number(existing.taxAmount),
     );
-    const floorsCount = dto.floorsCount ?? existing.floorsCount;
-    const unitsPerFloor = dto.unitsPerFloor ?? existing.unitsPerFloor;
-    const totalUnits =
-      floorsCount && unitsPerFloor ? floorsCount * unitsPerFloor : null;
+    const planning = this.resolvePlanningRange({
+      floorStart: dto.floorStart ?? existing.floorStart,
+      floorEnd: dto.floorEnd ?? existing.floorEnd,
+      unitStart: dto.unitStart ?? existing.unitStart,
+      unitEnd: dto.unitEnd ?? existing.unitEnd,
+      floorsCount: dto.floorsCount ?? existing.floorsCount,
+      unitsPerFloor: dto.unitsPerFloor ?? existing.unitsPerFloor,
+    });
+    const floorsCount = planning.floorsCount;
+    const unitsPerFloor = planning.unitsPerFloor;
+    const totalUnits = planning.totalUnits;
 
     const quote = await this.prisma.quoteEstimate.update({
       where: { id },
@@ -350,8 +407,18 @@ export class QuoteEstimatesService {
           : {}),
         ...(dto.floorsCount !== undefined ? { floorsCount } : {}),
         ...(dto.unitsPerFloor !== undefined ? { unitsPerFloor } : {}),
-        ...(dto.floorsCount !== undefined || dto.unitsPerFloor !== undefined
-          ? { totalUnits }
+        ...(dto.floorsCount !== undefined || dto.unitsPerFloor !== undefined ||
+          dto.floorStart !== undefined || dto.floorEnd !== undefined ||
+          dto.unitStart !== undefined || dto.unitEnd !== undefined
+          ? {
+              floorsCount,
+              unitsPerFloor,
+              floorStart: planning.floorStart,
+              floorEnd: planning.floorEnd,
+              unitStart: planning.unitStart,
+              unitEnd: planning.unitEnd,
+              totalUnits,
+            }
           : {}),
         ...(dto.status !== undefined ? { status: dto.status } : {}),
         subtotal: totals.subtotal,
@@ -683,7 +750,13 @@ export class QuoteEstimatesService {
       const createdUnits: { id: string; floorId: string; name: string }[] = [];
 
       if (existing.floorsCount && existing.unitsPerFloor) {
-        for (let floorNumber = 1; floorNumber <= existing.floorsCount; floorNumber++) {
+        const floorStart = existing.floorStart ?? 1;
+        const unitStart = existing.unitStart ?? 1;
+        for (
+          let floorNumber = floorStart;
+          floorNumber < floorStart + existing.floorsCount;
+          floorNumber++
+        ) {
           const floor = await tx.floor.create({
             data: {
               projectId: createdProject.id,
@@ -694,7 +767,11 @@ export class QuoteEstimatesService {
             },
           });
           createdFloors.push({ id: floor.id, floorNumber });
-          for (let unitIndex = 1; unitIndex <= existing.unitsPerFloor; unitIndex++) {
+          for (
+            let unitIndex = unitStart;
+            unitIndex < unitStart + existing.unitsPerFloor;
+            unitIndex++
+          ) {
             const unit = await tx.unit.create({
               data: {
                 floorId: floor.id,
@@ -766,15 +843,25 @@ export class QuoteEstimatesService {
     });
 
     for (const [index, quoteTask] of quote.tasks.entries()) {
-      const matchedFloor = quoteTask.floorNumber
-        ? floors.find((floor) => floor.floorNumber === quoteTask.floorNumber)
+      const plannedFloorNumber = quoteTask.floorNumber ?? Number(
+        quoteTask.plannedFloorLabel?.match(/\d+/)?.[0],
+      );
+      const plannedUnitName =
+        quoteTask.unitName ?? quoteTask.plannedUnitLabel?.replace(/^unit\s+/i, '');
+      const matchedFloor = plannedFloorNumber
+        ? floors.find((floor) => floor.floorNumber === plannedFloorNumber)
         : floors[0];
-      const matchedUnit = quoteTask.unitName
-        ? units.find(
-            (unit) =>
-              unit.name.toLowerCase() === quoteTask.unitName?.toLowerCase(),
-          )
-        : units[0];
+      const plannedLocationKey = quoteTask.plannedLocationKey?.toLowerCase();
+      const matchedUnit = plannedUnitName
+        ? units.find((unit) => {
+            return (
+              unit.name.toLowerCase() === plannedUnitName.toLowerCase() &&
+              (!matchedFloor || unit.floorId === matchedFloor.id) ||
+              (plannedLocationKey?.includes(`unit_${unit.name.toLowerCase()}`) &&
+                (!matchedFloor || unit.floorId === matchedFloor.id))
+            );
+          })
+        : units.find((unit) => !matchedFloor || unit.floorId === matchedFloor.id) ?? units[0];
       const taskUnits = matchedUnit
         ? [matchedUnit]
         : matchedFloor

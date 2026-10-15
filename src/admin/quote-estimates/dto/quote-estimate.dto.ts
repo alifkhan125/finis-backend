@@ -5,6 +5,7 @@ import {
   IsEnum,
   IsNumber,
   IsOptional,
+  IsIn,
   IsString,
   IsUUID,
   Min,
@@ -32,6 +33,43 @@ export class QuoteEstimateTaskDto {
   @IsOptional()
   @IsString()
   unitName?: string;
+
+  @IsOptional()
+  @IsString()
+  plannedFloorLabel?: string;
+
+  @IsOptional()
+  @IsString()
+  plannedUnitLabel?: string;
+
+  @IsOptional()
+  @IsString()
+  plannedLocationKey?: string;
+
+  @IsOptional()
+  @IsIn(['all', 'selected'])
+  locationMode?: 'all' | 'selected';
+
+  @IsOptional()
+  @IsArray()
+  @IsNumber({}, { each: true })
+  @Type(() => Number)
+  selectedFloorNumbers?: number[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  selectedUnitNames?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  plannedLocationKeys?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  scopeChecklist?: string[];
 
   @IsOptional()
   @IsNumber()
@@ -117,6 +155,30 @@ export class CreateQuoteEstimateDto {
 
   @IsOptional()
   @IsNumber()
+  @Min(1)
+  @Type(() => Number)
+  floorStart?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Type(() => Number)
+  floorEnd?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Type(() => Number)
+  unitStart?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Type(() => Number)
+  unitEnd?: number;
+
+  @IsOptional()
+  @IsNumber()
   @Min(0)
   @Type(() => Number)
   discountAmount?: number;
@@ -190,6 +252,30 @@ export class UpdateQuoteEstimateDto {
   @Min(0)
   @Type(() => Number)
   unitsPerFloor?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Type(() => Number)
+  floorStart?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Type(() => Number)
+  floorEnd?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Type(() => Number)
+  unitStart?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Type(() => Number)
+  unitEnd?: number;
 
   @IsOptional()
   @IsNumber()

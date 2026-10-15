@@ -377,6 +377,10 @@ model QuoteEstimate {
   endDate            DateTime?               @map("end_date") @db.Date
   floorsCount        Int?                    @map("floors_count")
   unitsPerFloor      Int?                    @map("units_per_floor")
+  floorStart         Int?                    @map("floor_start")
+  floorEnd           Int?                    @map("floor_end")
+  unitStart          Int?                    @map("unit_start")
+  unitEnd            Int?                    @map("unit_end")
   totalUnits         Int?                    @map("total_units")
   subtotal           Decimal                 @default(0) @db.Decimal(12, 2)
   discountAmount     Decimal                 @default(0) @map("discount_amount") @db.Decimal(12, 2)
@@ -412,6 +416,14 @@ model QuoteEstimateTask {
   description     String?
   floorNumber     Int?                    @map("floor_number")
   unitName        String?                 @map("unit_name")
+  plannedFloorLabel String?               @map("planned_floor_label")
+  plannedUnitLabel  String?               @map("planned_unit_label")
+  plannedLocationKey String?              @map("planned_location_key")
+  locationMode     String?                @map("location_mode")
+  selectedFloorNumbers Json?              @map("selected_floor_numbers")
+  selectedUnitNames Json?                 @map("selected_unit_names")
+  plannedLocationKeys Json?               @map("planned_location_keys")
+  scopeChecklist    Json?                 @map("scope_checklist")
   quantity        Decimal                 @default(1) @db.Decimal(12, 2)
   unit            String?
   estimatedHours  Decimal?                @map("estimated_hours") @db.Decimal(12, 2)
