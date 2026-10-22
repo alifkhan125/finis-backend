@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DashboardQueryDto } from './dto/dashboard.dto';
+import { dashboardPeriod, completionForecast } from './dashboard-period';
 import { Prisma, ProjectStatus, UserRole } from '../../generated/prisma/client';
 
 @Injectable()
@@ -20,6 +21,9 @@ export class DashboardService {
       invitationsPage = 1,
       invitationsLimit = 10,
     } = query;
+
+    const period = dashboardPeriod(query);
+    const taskDates = period ? { createdAt: period } : {};
 
     const myCompanies =
       userRole === UserRole.admin
@@ -152,6 +156,7 @@ export class DashboardService {
       taskReports,
       payrolls,
       expenses,
+      chartTasks,
     ] = await Promise.all([
       // ── Stats ──────────────────────────────────────
       this.prisma.project.count({
@@ -163,8 +168,8 @@ export class DashboardService {
       this.prisma.payroll.count({
         where:
           userRole === UserRole.manager
-            ? { status: 'draft' }
-            : { companyId: { in: companyIds }, status: 'draft' },
+            ? { status: 'draft', ...(period ? { createdAt: period } : {}) }
+            : { companyId: { in: companyIds }, status: 'draft', ...(period ? { createdAt: period } : {}) },
       }),
 
       inventoryAlertsQuery,
@@ -292,16 +297,16 @@ export class DashboardService {
 
       // ── Task Indicators ─────────────────────────────
       this.prisma.task.count({
-        where: { project: projectWhere, status: 'pending' },
+        where: { project: projectWhere, ...taskDates, status: 'pending' },
       }),
       this.prisma.task.count({
-        where: { project: projectWhere, status: 'in_progress' },
+        where: { project: projectWhere, ...taskDates, status: 'in_progress' },
       }),
       this.prisma.task.count({
-        where: { project: projectWhere, status: 'review' },
+        where: { project: projectWhere, ...taskDates, status: 'review' },
       }),
       this.prisma.task.count({
-        where: { project: projectWhere, status: 'completed' },
+        where: { project: projectWhere, ...taskDates, status: 'completed' },
       }),
 
       // ── Tenant & Subscription ───────────────────────
@@ -320,7 +325,7 @@ export class DashboardService {
 
       // ── Scoped Recent Activity ──────────────────────
       this.prisma.taskReport.findMany({
-        where: { task: { project: projectWhere } },
+        where: { task: { project: projectWhere }, ...(period ? { submittedAt: period } : {}) },
         take: 6,
         orderBy: { submittedAt: 'desc' },
         include: {
@@ -335,7 +340,7 @@ export class DashboardService {
       }),
 
       this.prisma.payroll.findMany({
-        where: { companyId: { in: companyIds }, status: 'approved' },
+        where: { companyId: { in: companyIds }, status: 'approved', ...(period ? { processedAt: period } : {}) },
         take: 6,
         orderBy: { processedAt: 'desc' },
         include: {
@@ -345,13 +350,21 @@ export class DashboardService {
       }),
 
       this.prisma.expense.findMany({
-        where: { project: { companyId: { in: companyIds } } },
+        where: { project: { companyId: { in: companyIds } }, ...(period ? { createdAt: period } : {}) },
         take: 6,
         orderBy: { createdAt: 'desc' },
         include: {
           worker: { select: { id: true, fullName: true, avatarUrl: true } },
           project: { select: { name: true } },
         },
+      }),
+      this.prisma.task.findMany({
+        where: {
+          project: projectWhere,
+          ...taskDates,
+          status: { in: ['pending', 'in_progress', 'review', 'completed'] },
+        },
+        select: { createdAt: true, status: true },
       }),
     ]);
 
@@ -411,41 +424,11 @@ export class DashboardService {
         ? Math.round((completedTasksCount / totalTasksCount) * 100)
         : 0;
 
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    const currentMonthIdx = new Date().getMonth();
-    const forecastData = months.map((name, i) => {
-      const isCurrent = i === currentMonthIdx;
-      return {
-        month: name,
-        completionPct: isCurrent ? taskCompletionRate : 0,
-        total: isCurrent ? totalTasksCount : 0,
-        completed: isCurrent ? completedTasksCount : 0,
-      };
-    });
-
-    const forecast = {
-      overallCompletion: taskCompletionRate,
-      avgCompletion: taskCompletionRate,
-      bestMonth: { month: currentMonthIdx + 1, value: taskCompletionRate },
-      data: forecastData,
-    };
+    const forecast = completionForecast(chartTasks);
 
     const taskIndicators = {
       totalTasks: totalTasksCount,
-      activeTasks: { value: inProgressTasksCount, change: 0 },
+      activeTasks: { value: inProgressTasksCount + planningTasksCount, change: 0 },
       pendingApprovals: {
         value: reviewTasksCount + payrollPendingCount,
         change: 0,
