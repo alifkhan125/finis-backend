@@ -10,7 +10,7 @@ import {
   IsUUID,
   ValidateNested,
 } from 'class-validator';
-import { Type, Transform } from 'class-transformer';
+import { Type, Transform, plainToInstance } from 'class-transformer';
 import { TaskPriority, TaskStatus } from '../../../generated/prisma/client';
 
 export class CreateTaskFloorDto {
@@ -55,6 +55,13 @@ export class CreateTaskDto {
 
   @IsOptional()
   @IsArray()
+  @Transform(({ value }) => {
+    if (typeof value !== 'string') return value;
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? plainToInstance(CreateTaskFloorDto, parsed) : parsed;
+    } catch { return value; }
+  })
   @ValidateNested({ each: true })
   @Type(() => CreateTaskFloorDto)
   floors?: CreateTaskFloorDto[];
@@ -68,6 +75,7 @@ export class CreateTaskDto {
   dueDate?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   estimatedHours?: number;
 
@@ -77,11 +85,25 @@ export class CreateTaskDto {
   price?: number;
 
   @IsOptional()
+  @Transform(({ value }) => value === 'true' ? true : value === 'false' ? false : value)
   @IsBoolean()
   allowSubTaskCreation?: boolean;
 }
 
 export class UpdateTaskDto {
+  @IsOptional()
+  @IsArray()
+  @Transform(({ value }) => {
+    if (typeof value !== 'string') return value;
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? plainToInstance(CreateTaskFloorDto, parsed) : parsed;
+    } catch { return value; }
+  })
+  @ValidateNested({ each: true })
+  @Type(() => CreateTaskFloorDto)
+  floors?: CreateTaskFloorDto[];
+
   @IsOptional()
   @IsString()
   title?: string;
@@ -109,6 +131,7 @@ export class UpdateTaskDto {
   unitIds?: string[];
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   estimatedHours?: number;
 
@@ -118,10 +141,12 @@ export class UpdateTaskDto {
   price?: number;
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   actualHours?: number;
 
   @IsOptional()
+  @Transform(({ value }) => value === 'true' ? true : value === 'false' ? false : value)
   @IsBoolean()
   allowSubTaskCreation?: boolean;
 
@@ -178,6 +203,7 @@ export class CreateSubTaskDto {
   dueDate?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   estimatedHours?: number;
 

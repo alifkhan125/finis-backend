@@ -1,3 +1,4 @@
+import { taskParentState } from '../admin/task/task-progress';
 import {
   Injectable,
   NotFoundException,
@@ -35,6 +36,31 @@ export class WorkerService {
     const h = Math.floor(totalMinutes / 60);
     const m = totalMinutes % 60;
     return `${h}h ${m}m`;
+  }
+
+  private async refreshParentTask(taskId: string) {
+    const children = await this.prisma.subTask.findMany({
+      where: { taskId },
+      select: { status: true, approvalDecision: true },
+    });
+    const data = taskParentState(children);
+    if (data) await this.prisma.task.update({ where: { id: taskId }, data });
+  }
+
+  private async resolveLegacyMainWork(taskId: string, workerId: string) {
+    const children = await this.prisma.subTask.findMany({
+      where: { taskId },
+      include: { taskAssignee: true },
+    });
+    if (!children.length) return null;
+    const assigned = children.filter(
+      (child) => child.taskAssignee?.userId === workerId,
+    );
+    if (assigned.length !== 1)
+      throw new BadRequestException(
+        'Open the assigned unit subtask to start or submit work',
+      );
+    return assigned[0];
   }
 
   private async notifySubTaskApprovalRequest(
@@ -918,19 +944,8 @@ export class WorkerService {
               },
             );
 
-            let computedStatus = task.status;
-            if (unitSubTasks.length > 0) {
-              computedStatus = 'completed'; // Assume completed, demote if any is pending/in_progress
-              for (const st of unitSubTasks) {
-                if (st.status === 'in_progress') {
-                  computedStatus = 'in_progress';
-                  break;
-                } else if (st.status === 'pending') {
-                  if (computedStatus !== 'in_progress')
-                    computedStatus = 'pending';
-                }
-              }
-            }
+            const computedStatus =
+              taskParentState(unitSubTasks)?.status ?? task.status;
 
             floorEntry.units.push({
               id: entry.unit.id,
@@ -1478,7 +1493,7 @@ export class WorkerService {
       });
     }
 
-    return this.prisma.subTask.update({
+    const started = await this.prisma.subTask.update({
       where: { id: taskId },
       data: {
         status: 'in_progress',
@@ -1489,6 +1504,8 @@ export class WorkerService {
         unit: { select: { id: true, name: true } },
       },
     });
+    await this.refreshParentTask(subTask.taskId);
+    return started;
   }
 
   async startMainTask(
@@ -1512,6 +1529,12 @@ export class WorkerService {
     });
 
     if (!task) throw new NotFoundException('Task not found');
+    const child = await this.resolveLegacyMainWork(taskId, workerId);
+    if (child) {
+      const result = await this.startTask(child.id, workerId, files);
+      return await this.getMainTaskDetail(taskId, workerId);
+    }
+
     if (!this.isTaskAssigned(task, workerId)) {
       throw new ForbiddenException('This task is not assigned to you');
     }
@@ -1569,13 +1592,15 @@ export class WorkerService {
     if (task.approvalDecision !== 'approved') {
       throw new BadRequestException('Main task must be approved first');
     }
-    if (!(task as any).allowSubTaskCreation) {
-      await this.prisma.task.update({
-        where: { id: taskId },
-        data: { allowSubTaskCreation: true },
-      });
-      (task as any).allowSubTaskCreation = true;
-    }
+    if (!task.allowSubTaskCreation)
+      throw new ForbiddenException(
+        'Additional subtasks are disabled for this task',
+      );
+    const ownAssignment = await this.prisma.taskAssignee.findFirst({
+      where: { taskId, userId: workerId },
+    });
+    if (!ownAssignment)
+      throw new ForbiddenException('This task is not assigned to you');
 
     const unitIds = Array.from(
       new Set([...(dto.unitIds ?? []), ...(dto.unitId ? [dto.unitId] : [])]),
@@ -1620,13 +1645,7 @@ export class WorkerService {
         });
       }
 
-      if (!assignee) {
-        assignee = await this.prisma.taskAssignee.findFirst({
-          where: { taskId, unitId },
-          select: { id: true, userId: true },
-          orderBy: { assignedAt: 'asc' },
-        });
-      }
+      if (!assignee) assignee = { id: ownAssignment.id, userId: workerId };
 
       const subTask = await this.prisma.subTask.create({
         data: {
@@ -1875,11 +1894,8 @@ export class WorkerService {
       },
     });
 
-    // যেকোনো SubTask submit হলে Main task-ও review-এ যাবে
-    await this.prisma.task.update({
-      where: { id: subTask.taskId },
-      data: { status: 'review' },
-    });
+    // Derive the parent from all required unit work, not just this submission.
+    await this.refreshParentTask(subTask.taskId);
 
     return {
       message:
@@ -1909,6 +1925,17 @@ export class WorkerService {
     });
 
     if (!task) throw new NotFoundException('Task not found');
+    const child = await this.resolveLegacyMainWork(taskId, workerId);
+    if (child) {
+      const result = await this.submitTaskReport(
+        child.id,
+        workerId,
+        dto,
+        files,
+      );
+      return result;
+    }
+
     if (!this.isTaskAssigned(task, workerId)) {
       throw new ForbiddenException('This task is not assigned to you');
     }
@@ -2218,10 +2245,7 @@ export class WorkerService {
       },
     });
 
-    await this.prisma.task.update({
-      where: { id: subTask.taskId },
-      data: { status: 'review' },
-    });
+    await this.refreshParentTask(subTask.taskId);
 
     const projectReviewRecipients = await this.prisma.projectMember.findMany({
       where: {
@@ -2277,6 +2301,17 @@ export class WorkerService {
     });
 
     if (!task) throw new NotFoundException('Task not found');
+    const child = await this.resolveLegacyMainWork(taskId, workerId);
+    if (child) {
+      const result = await this.updateTaskReport(
+        child.id,
+        workerId,
+        body,
+        files,
+      );
+      return result;
+    }
+
     if (!this.isTaskAssigned(task, workerId)) {
       throw new ForbiddenException('This task is not assigned to you');
     }

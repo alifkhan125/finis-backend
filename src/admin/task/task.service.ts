@@ -1,3 +1,4 @@
+import { taskParentState } from './task-progress';
 import {
   Injectable,
   NotFoundException,
@@ -14,7 +15,12 @@ import {
   ReviewTaskDto,
   CreateSubTaskDto,
 } from './dto/task.dto';
-import { Prisma, UserRole, TaskPriority, ProjectStatus } from '../../generated/prisma/client';
+import {
+  Prisma,
+  UserRole,
+  TaskPriority,
+  ProjectStatus,
+} from '../../generated/prisma/client';
 
 type AuthUser = {
   id: string;
@@ -373,30 +379,15 @@ export class TaskService {
   }
 
   private async refreshTaskProgress(taskId: string) {
-    const [subTaskCount, completedCount] = await Promise.all([
-      this.prisma.subTask.count({ where: { taskId } }),
-      this.prisma.subTask.count({
-        where: { taskId, status: 'completed' },
-      }),
-    ]);
-
-    if (subTaskCount === 0) {
-      return;
-    }
-
-    if (subTaskCount === completedCount) {
-      const updated = await this.prisma.task.update({
-        where: { id: taskId },
-        data: { status: 'completed' },
-      });
-      await this.refreshProjectProgress(updated.projectId);
-      return;
-    }
-
-    // কোনো SubTask incomplete বা revision-এ আছে → main task in_progress
+    const children = await this.prisma.subTask.findMany({
+      where: { taskId },
+      select: { status: true, approvalDecision: true },
+    });
+    if (!children.length) return;
+    const data = taskParentState(children)!;
     const updated = await this.prisma.task.update({
       where: { id: taskId },
-      data: { status: 'in_progress' },
+      data,
     });
     await this.refreshProjectProgress(updated.projectId);
   }
@@ -1009,6 +1000,79 @@ export class TaskService {
     };
   }
 
+  private async resolveTaskScope(
+    tx: Prisma.TransactionClient,
+    projectId: string,
+    input: {
+      floorId?: string;
+      unitId?: string;
+      floorIds?: string[];
+      unitIds?: string[];
+      floors?: { floorId: string; unitIds?: string[] }[];
+    },
+  ) {
+    const floorIds = [
+      ...new Set([
+        ...(input.floorIds ?? []),
+        ...(input.floorId ? [input.floorId] : []),
+        ...(input.floors ?? []).map((f) => f.floorId),
+      ]),
+    ];
+    const explicitIds = [
+      ...new Set([
+        ...(input.unitIds ?? []),
+        ...(input.unitId ? [input.unitId] : []),
+        ...(input.floors ?? []).flatMap((f) => f.unitIds ?? []),
+      ]),
+    ];
+    const floors = await tx.floor.findMany({
+      where: { projectId, id: { in: floorIds } },
+      select: { id: true },
+    });
+    if (floors.length !== floorIds.length)
+      throw new NotFoundException(
+        'One or more floors not found in this project',
+      );
+    const units = await tx.unit.findMany({
+      where: {
+        floor: { projectId },
+        OR: [{ id: { in: explicitIds } }, { floorId: { in: floorIds } }],
+      },
+      select: { id: true, floorId: true },
+    });
+    const selected = units.filter((u) => explicitIds.includes(u.id));
+    if (selected.length !== explicitIds.length)
+      throw new NotFoundException(
+        'One or more units not found in this project',
+      );
+    for (const group of input.floors ?? []) {
+      if (
+        (group.unitIds ?? []).some(
+          (id) =>
+            !selected.some((u) => u.id === id && u.floorId === group.floorId),
+        )
+      )
+        throw new BadRequestException(
+          'Unit does not belong to its selected floor',
+        );
+    }
+    if (floorIds.length && selected.some((u) => !floorIds.includes(u.floorId)))
+      throw new BadRequestException(
+        'Unit does not belong to the selected floors',
+      );
+    const unitIds = [...explicitIds];
+    for (const floorId of floorIds) {
+      if (!selected.some((u) => u.floorId === floorId))
+        unitIds.push(
+          ...units.filter((u) => u.floorId === floorId).map((u) => u.id),
+        );
+    }
+    return {
+      floorIds: [...new Set([...floorIds, ...selected.map((u) => u.floorId)])],
+      unitIds: [...new Set(unitIds)],
+    };
+  }
+
   async createTask(dto: CreateTaskDto, userId: string, userRole: string) {
     const canCreateAsAdmin =
       userRole === UserRole.admin || userRole === UserRole.super_admin;
@@ -1033,247 +1097,193 @@ export class TaskService {
       }
     } else {
       const project = await this.prisma.project.findFirst({
-        where: { id: dto.projectId, company: { ownerId: userId } },
+        where: { id: dto.projectId, ...(userRole === UserRole.super_admin ? {} : { company: { ownerId: userId } }) },
       });
       if (!project) {
         throw new ForbiddenException('Project not found or not yours');
       }
     }
 
-    const nestedFloorIds = dto.floors?.map((item) => item.floorId) ?? [];
-    const nestedUnitIds =
-      dto.floors?.flatMap((item) => item.unitIds ?? []) ?? [];
-    const floorIds = Array.from(
-      new Set([...(dto.floorIds ?? []), ...nestedFloorIds]),
-    );
-    const unitIds = Array.from(
-      new Set([...(dto.unitIds ?? []), ...nestedUnitIds]),
-    );
-
-    if (dto.floorId) {
-      const floor = await this.prisma.floor.findFirst({
-        where: { id: dto.floorId, projectId: dto.projectId },
-      });
-      if (!floor)
-        throw new NotFoundException('Floor not found in this project');
-    }
-
-    if (dto.unitId) {
-      const room = await this.prisma.unit.findFirst({
-        where: { id: dto.unitId, floor: { projectId: dto.projectId } },
-      });
-      if (!room) throw new NotFoundException('Unit not found in this project');
-    }
-
-    if (floorIds.length) {
-      const floors = await this.prisma.floor.findMany({
-        where: { id: { in: floorIds }, projectId: dto.projectId },
-        select: { id: true },
-      });
-      if (floors.length !== floorIds.length) {
-        throw new NotFoundException(
-          'One or more floors not found in this project',
+    const { task, created } = await this.prisma.$transaction(
+      async (tx) => {
+        const { floorIds, unitIds } = await this.resolveTaskScope(
+          tx,
+          dto.projectId,
+          dto,
         );
-      }
-    }
+        if (!dto.allowSubTaskCreation && !unitIds.length)
+          throw new BadRequestException(
+            'Select units or floors containing units for automatic subtasks',
+          );
 
-    if (unitIds.length) {
-      const units = await this.prisma.unit.findMany({
-        where: { id: { in: unitIds }, floor: { projectId: dto.projectId } },
-        select: { id: true },
-      });
-      if (units.length !== unitIds.length) {
-        throw new NotFoundException(
-          'One or more units not found in this project',
-        );
-      }
-    }
+        const approvalDecision = canCreateAsWorker ? 'pending' : 'approved';
+        const initialStatus = canCreateAsWorker ? 'in_active' : 'pending';
+        const price = this.canManageTaskPrice(userRole)
+          ? (this.normalizePrice(dto.price) ?? 0)
+          : 0;
 
-    const approvalDecision = canCreateAsWorker ? 'pending' : 'approved';
-    const initialStatus = canCreateAsWorker ? 'in_active' : 'pending';
-    const price = this.canManageTaskPrice(userRole)
-      ? (this.normalizePrice(dto.price) ?? 0)
-      : 0;
-
-    const task = await this.prisma.task.create({
-      data: {
-        projectId: dto.projectId,
-        floorId: dto.floors?.length ? null : (dto.floorId ?? null),
-        unitId: dto.floors?.length ? null : (dto.unitId ?? null),
-        assignedTo: canCreateAsWorker ? userId : null,
-        createdBy: userId,
-        title: dto.title,
-        description: dto.description ?? null,
-        priority: dto.priority ?? TaskPriority.medium,
-        status: initialStatus,
-        approvalDecision,
-        approvalReviewedBy: approvalDecision === 'approved' ? userId : null,
-        approvalReviewedAt: approvalDecision === 'approved' ? new Date() : null,
-        allowSubTaskCreation: dto.allowSubTaskCreation ?? false,
-        dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
-        estimatedHours: dto.estimatedHours ?? null,
-        price,
-      } as any,
-    });
-
-    const workerAssignmentUnitIds = canCreateAsWorker
-      ? unitIds.length
-        ? unitIds
-        : dto.unitId
-          ? [dto.unitId]
-          : [null]
-      : [];
-    let workerAssignmentByUnit = new Map<string, string>();
-
-    if (canCreateAsWorker) {
-      await this.prisma.taskAssignee.createMany({
-        data: workerAssignmentUnitIds.map((unitId) => ({
-          taskId: task.id,
-          userId,
-          unitId,
-        })),
-        skipDuplicates: true,
-      });
-
-      const workerAssignments = await this.prisma.taskAssignee.findMany({
-        where: { taskId: task.id, userId },
-        select: { id: true, unitId: true },
-      });
-
-      workerAssignmentByUnit = new Map(
-        workerAssignments.map((assignment) => [
-          assignment.unitId ?? 'main',
-          assignment.id,
-        ]),
-      );
-    }
-
-    if (floorIds.length) {
-      await this.prisma.taskFloor.createMany({
-        data: floorIds.map((floorId) => ({ taskId: task.id, floorId })),
-        skipDuplicates: true,
-      });
-    } else if (dto.floorId) {
-      await this.prisma.taskFloor.createMany({
-        data: [{ taskId: task.id, floorId: dto.floorId }],
-        skipDuplicates: true,
-      });
-    }
-
-    if (unitIds.length) {
-      await this.prisma.taskUnit.createMany({
-        data: unitIds.map((unitId) => ({ taskId: task.id, unitId })),
-        skipDuplicates: true,
-      });
-
-      if (!dto.allowSubTaskCreation) {
-        for (const unitId of unitIds) {
-          const subTask = await this.prisma.subTask.create({
-            data: {
-              taskId: task.id,
-              unitId,
-              createdBy: userId,
-              title: dto.title,
-              description: dto.description ?? null,
-              priority: dto.priority ?? TaskPriority.medium,
-              dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
-              estimatedHours: dto.estimatedHours ?? null,
-              price,
-              status: initialStatus,
-              taskAssigneeId: workerAssignmentByUnit.get(unitId) ?? null,
-              approvalDecision,
-              approvalReviewedBy:
-                approvalDecision === 'approved' ? userId : null,
-              approvalReviewedAt:
-                approvalDecision === 'approved' ? new Date() : null,
-            } as any,
-          });
-          await this.prisma.subTaskUnit.create({
-            data: { subTaskId: subTask.id, unitId },
-          });
-        }
-      }
-    } else if (dto.unitId) {
-      await this.prisma.taskUnit.createMany({
-        data: [{ taskId: task.id, unitId: dto.unitId }],
-        skipDuplicates: true,
-      });
-
-      if (!dto.allowSubTaskCreation) {
-        const subTask = await this.prisma.subTask.create({
+        const task = await tx.task.create({
           data: {
-            taskId: task.id,
-            unitId: dto.unitId,
+            projectId: dto.projectId,
+            floorId: dto.floors?.length ? null : (dto.floorId ?? null),
+            unitId: dto.floors?.length ? null : (dto.unitId ?? null),
+            assignedTo: canCreateAsWorker ? userId : null,
             createdBy: userId,
             title: dto.title,
             description: dto.description ?? null,
             priority: dto.priority ?? TaskPriority.medium,
-            dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
-            estimatedHours: dto.estimatedHours ?? null,
-            price,
             status: initialStatus,
-            taskAssigneeId: workerAssignmentByUnit.get(dto.unitId) ?? null,
             approvalDecision,
             approvalReviewedBy: approvalDecision === 'approved' ? userId : null,
             approvalReviewedAt:
               approvalDecision === 'approved' ? new Date() : null,
+            allowSubTaskCreation: dto.allowSubTaskCreation ?? false,
+            dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
+            estimatedHours: dto.estimatedHours ?? null,
+            price,
           } as any,
         });
-        await this.prisma.subTaskUnit.create({
-          data: { subTaskId: subTask.id, unitId: dto.unitId },
-        });
-      }
-    }
 
-    const created = await this.prisma.task.findUnique({
-      where: { id: task.id },
-      include: {
-        project: { select: { id: true, name: true } },
-        floor: { select: { id: true, name: true, floorNumber: true } },
-        unit: { select: { id: true, name: true } },
-        taskFloors: {
+        const workerAssignmentUnitIds = canCreateAsWorker
+          ? unitIds.length
+            ? unitIds
+            : dto.unitId
+              ? [dto.unitId]
+              : [null]
+          : [];
+        let workerAssignmentByUnit = new Map<string, string>();
+
+        if (canCreateAsWorker) {
+          await tx.taskAssignee.createMany({
+            data: workerAssignmentUnitIds.map((unitId) => ({
+              taskId: task.id,
+              userId,
+              unitId,
+            })),
+            skipDuplicates: true,
+          });
+
+          const workerAssignments = await tx.taskAssignee.findMany({
+            where: { taskId: task.id, userId },
+            select: { id: true, unitId: true },
+          });
+
+          workerAssignmentByUnit = new Map(
+            workerAssignments.map((assignment) => [
+              assignment.unitId ?? 'main',
+              assignment.id,
+            ]),
+          );
+        }
+
+        if (floorIds.length) {
+          await tx.taskFloor.createMany({
+            data: floorIds.map((floorId) => ({ taskId: task.id, floorId })),
+            skipDuplicates: true,
+          });
+        } else if (dto.floorId) {
+          await tx.taskFloor.createMany({
+            data: [{ taskId: task.id, floorId: dto.floorId }],
+            skipDuplicates: true,
+          });
+        }
+
+        if (unitIds.length) {
+          await tx.taskUnit.createMany({
+            data: unitIds.map((unitId) => ({ taskId: task.id, unitId })),
+            skipDuplicates: true,
+          });
+
+          if (!dto.allowSubTaskCreation) {
+            for (const unitId of unitIds) {
+              const subTask = await tx.subTask.create({
+                data: {
+                  taskId: task.id,
+                  unitId,
+                  createdBy: userId,
+                  title: dto.title,
+                  description: dto.description ?? null,
+                  priority: dto.priority ?? TaskPriority.medium,
+                  dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
+                  estimatedHours: dto.estimatedHours ?? null,
+                  price,
+                  status: initialStatus,
+                  taskAssigneeId: workerAssignmentByUnit.get(unitId) ?? null,
+                  approvalDecision,
+                  approvalReviewedBy:
+                    approvalDecision === 'approved' ? userId : null,
+                  approvalReviewedAt:
+                    approvalDecision === 'approved' ? new Date() : null,
+                } as any,
+              });
+              await tx.subTaskUnit.create({
+                data: { subTaskId: subTask.id, unitId },
+              });
+            }
+          }
+        }
+
+        const created = await tx.task.findUnique({
+          where: { id: task.id },
           include: {
+            project: { select: { id: true, name: true } },
             floor: { select: { id: true, name: true, floorNumber: true } },
-          },
-        },
-        taskUnits: {
-          include: {
-            unit: {
-              select: {
-                id: true,
-                name: true,
-                floorId: true,
+            unit: { select: { id: true, name: true } },
+            taskFloors: {
+              include: {
                 floor: { select: { id: true, name: true, floorNumber: true } },
               },
             },
-          },
-        },
-        taskAssignees: {
-          include: {
-            user: {
-              select: { id: true, fullName: true, avatarUrl: true, role: true },
+            taskUnits: {
+              include: {
+                unit: {
+                  select: {
+                    id: true,
+                    name: true,
+                    floorId: true,
+                    floor: {
+                      select: { id: true, name: true, floorNumber: true },
+                    },
+                  },
+                },
+              },
             },
-            unit: { select: { id: true, name: true } },
+            taskAssignees: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    fullName: true,
+                    avatarUrl: true,
+                    role: true,
+                  },
+                },
+                unit: { select: { id: true, name: true } },
+              },
+            },
+            reports: {
+              orderBy: { submittedAt: 'desc' },
+              take: 1,
+              select: {
+                id: true,
+                notes: true,
+                beforePhotoUrl: true,
+                afterPhotoUrl: true,
+                receiptUrl: true,
+                reviewDecision: true,
+                reviewDescription: true,
+                reviewAttachmentUrl: true,
+                submittedAt: true,
+              },
+            },
+            subTasks: true,
           },
-        },
-        reports: {
-          orderBy: { submittedAt: 'desc' },
-          take: 1,
-          select: {
-            id: true,
-            notes: true,
-            beforePhotoUrl: true,
-            afterPhotoUrl: true,
-            receiptUrl: true,
-            reviewDecision: true,
-            reviewDescription: true,
-            reviewAttachmentUrl: true,
-            submittedAt: true,
-          },
-        },
-        subTasks: true,
+        });
+
+        return { task, created };
       },
-    });
+      { timeout: 30000 },
+    );
 
     await this.notifyProjectRecipients(
       dto.projectId,
@@ -1729,6 +1739,13 @@ export class TaskService {
 
     await this.verifyTaskAccess(subTask.taskId, userId, userRole);
 
+    const parent = await this.prisma.task.findUnique({
+      where: { id: subTask.taskId },
+    });
+    if (parent && !parent.allowSubTaskCreation)
+      throw new BadRequestException(
+        'Remove an unstarted unit through task scope editing instead',
+      );
     await this.prisma.subTask.delete({
       where: { id: subTaskId },
     });
@@ -2260,9 +2277,9 @@ export class TaskService {
     file?: Express.Multer.File,
   ) {
     await this.verifyTaskAccess(taskId, userId, userRole);
-
     const {
       floorIds,
+      floors,
       unitIds,
       expenseDescription,
       expenseAmount,
@@ -2280,82 +2297,188 @@ export class TaskService {
       ? this.normalizePrice(price)
       : undefined;
 
-    const updatedTask = await this.prisma.task.update({
-      where: { id: taskId },
-      data: {
-        ...taskUpdates,
-        ...(normalizedPrice !== undefined ? { price: normalizedPrice } : {}),
-        dueDate: taskUpdates.dueDate
-          ? new Date(taskUpdates.dueDate)
-          : undefined,
-      },
-    });
-
-    if (floorIds !== undefined) {
-      await this.prisma.taskFloor.deleteMany({ where: { taskId } });
-      if (floorIds.length > 0) {
-        const floors = await this.prisma.floor.findMany({
-          where: { id: { in: floorIds }, projectId: updatedTask.projectId },
-          select: { id: true },
-        });
-        if (floors.length !== floorIds.length) {
-          throw new NotFoundException(
-            'One or more floors not found in this project',
-          );
-        }
-        await this.prisma.taskFloor.createMany({
-          data: floorIds.map((floorId) => ({ taskId, floorId })),
-          skipDuplicates: true,
-        });
-      }
-    }
-
-    if (unitIds !== undefined) {
-      await this.prisma.taskUnit.deleteMany({ where: { taskId } });
-      if (unitIds.length > 0) {
-        const units = await this.prisma.unit.findMany({
-          where: {
-            id: { in: unitIds },
-            floor: { projectId: updatedTask.projectId },
+    return this.prisma.$transaction(
+      async (tx) => {
+        // Serialize scope edits on this parent so concurrent saves cannot create duplicate children.
+        await tx.$queryRaw`SELECT id FROM tasks WHERE id = ${taskId}::uuid FOR UPDATE`;
+        const task = await tx.task.findUniqueOrThrow({
+          where: { id: taskId },
+          include: {
+            taskFloors: true,
+            taskUnits: true,
+            subTasks: {
+              include: {
+                _count: { select: { reports: true, invoiceLines: true } },
+              },
+            },
           },
-          select: { id: true },
         });
-        if (units.length !== unitIds.length) {
-          throw new NotFoundException(
-            'One or more units not found in this project',
+        const locationChanged =
+          floorIds !== undefined ||
+          unitIds !== undefined ||
+          floors !== undefined;
+        const scope = locationChanged
+          ? await this.resolveTaskScope(tx, task.projectId, {
+              floorIds: floors
+                ? undefined
+                : (floorIds ??
+                  (unitIds !== undefined
+                    ? []
+                    : task.taskFloors.map((f) => f.floorId))),
+              unitIds: floors
+                ? undefined
+                : (unitIds ??
+                  (floorIds !== undefined
+                    ? []
+                    : task.taskUnits.map((u) => u.unitId))),
+              floors,
+            })
+          : {
+              floorIds: task.taskFloors.map((f) => f.floorId),
+              unitIds: task.taskUnits.map((u) => u.unitId),
+            };
+        const automatic = !(
+          taskUpdates.allowSubTaskCreation ?? task.allowSubTaskCreation
+        );
+        if (automatic && !scope.unitIds.length && (locationChanged || taskUpdates.allowSubTaskCreation === false && task.allowSubTaskCreation))
+          throw new BadRequestException(
+            'Automatic tasks require at least one unit',
+          );
+        const removed = task.subTasks.filter(
+          (child) => !scope.unitIds.includes(child.unitId),
+        );
+        if (
+          removed.some(
+            (child) =>
+              !['pending', 'in_active'].includes(child.status) ||
+              child._count.reports ||
+              child._count.invoiceLines,
+          )
+        ) {
+          throw new BadRequestException(
+            'Cannot remove a unit with started, reported or invoiced work',
           );
         }
-        await this.prisma.taskUnit.createMany({
-          data: unitIds.map((unitId) => ({ taskId, unitId })),
-          skipDuplicates: true,
+        if (
+          automatic &&
+          scope.unitIds.some(
+            (id) =>
+              task.subTasks.filter((child) => child.unitId === id).length > 1,
+          )
+        ) {
+          throw new BadRequestException(
+            'Cannot disable additional subtasks: a unit already has multiple subtasks',
+          );
+        }
+        if (removed.length)
+          await tx.subTask.deleteMany({
+            where: { id: { in: removed.map((child) => child.id) } },
+          });
+        const updatedTask = await tx.task.update({
+          where: { id: taskId },
+          data: {
+            ...taskUpdates,
+            ...(normalizedPrice !== undefined
+              ? { price: normalizedPrice }
+              : {}),
+            dueDate: taskUpdates.dueDate
+              ? new Date(taskUpdates.dueDate)
+              : undefined,
+          },
         });
-      }
-    }
+        if (locationChanged) {
+          await tx.taskFloor.deleteMany({ where: { taskId } });
+          await tx.taskUnit.deleteMany({ where: { taskId } });
+          if (scope.floorIds.length)
+            await tx.taskFloor.createMany({
+              data: scope.floorIds.map((floorId) => ({ taskId, floorId })),
+              skipDuplicates: true,
+            });
+          if (scope.unitIds.length)
+            await tx.taskUnit.createMany({
+              data: scope.unitIds.map((unitId) => ({ taskId, unitId })),
+              skipDuplicates: true,
+            });
+        }
+        if (automatic) {
+          const assignments = await tx.taskAssignee.findMany({
+            where: { taskId },
+            orderBy: { assignedAt: 'asc' },
+          });
+          let index = 0;
+          for (const unitId of scope.unitIds) {
+            if (task.subTasks.some((child) => child.unitId === unitId))
+              continue;
+            const assignment =
+              assignments.find((a) => a.unitId === unitId) ??
+              assignments[index++ % assignments.length];
+            await tx.subTask.create({
+              data: {
+                taskId,
+                unitId,
+                createdBy: userId,
+                title: updatedTask.title,
+                description: updatedTask.description,
+                priority: updatedTask.priority,
+                dueDate: updatedTask.dueDate,
+                estimatedHours: updatedTask.estimatedHours,
+                price: updatedTask.price,
+                status:
+                  updatedTask.approvalDecision === 'approved'
+                    ? 'pending'
+                    : 'in_active',
+                approvalDecision: updatedTask.approvalDecision,
+                taskAssigneeId: assignment?.id ?? null,
+                subTaskUnits: { create: { unitId } },
+              },
+            });
+          }
+          if (
+            scope.unitIds.some(
+              (id) => !task.subTasks.some((child) => child.unitId === id),
+            )
+          ) {
+            await tx.task.update({
+              where: { id: taskId },
+              data: { status: 'pending', completionDecision: 'pending' },
+            });
+          }
+        }
+        if (
+          expenseDescription ||
+          expenseAmount !== undefined ||
+          file?.filename
+        ) {
+          const normalizedAmount =
+            expenseAmount === undefined || expenseAmount === null
+              ? 0
+              : Number(expenseAmount);
 
-    if (expenseDescription || expenseAmount !== undefined || file?.filename) {
-      const normalizedAmount =
-        expenseAmount === undefined || expenseAmount === null
-          ? 0
-          : Number(expenseAmount);
+          await tx.expense.create({
+            data: {
+              workerId: userId,
+              projectId: updatedTask.projectId,
+              taskId,
+              description: expenseDescription?.trim() || 'Task expense',
+              category: 'other',
+              subtotal: Number.isFinite(normalizedAmount)
+                ? normalizedAmount
+                : 0,
+              tax: 0,
+              totalAmount: Number.isFinite(normalizedAmount)
+                ? normalizedAmount
+                : 0,
+              receiptUrl: file?.filename ?? null,
+              date: new Date(),
+              status: 'approved',
+            },
+          });
+        }
 
-      await this.prisma.expense.create({
-        data: {
-          workerId: userId,
-          projectId: updatedTask.projectId,
-          taskId,
-          description: expenseDescription?.trim() || 'Task expense',
-          category: 'other',
-          subtotal: Number.isFinite(normalizedAmount) ? normalizedAmount : 0,
-          tax: 0,
-          totalAmount: Number.isFinite(normalizedAmount) ? normalizedAmount : 0,
-          receiptUrl: file?.filename ?? null,
-          date: new Date(),
-          status: 'approved',
-        },
-      });
-    }
-
-    return updatedTask;
+        return tx.task.findUniqueOrThrow({ where: { id: taskId } });
+      },
+      { timeout: 30000 },
+    );
   }
 
   async updateTaskStatus(
@@ -2371,6 +2494,22 @@ export class TaskService {
         'Approved task only can move to execution flow',
       );
     }
+
+    if (
+      dto.status === 'completed' &&
+      (await this.prisma.subTask.count({
+        where: {
+          taskId,
+          OR: [
+            { status: { not: 'completed' } },
+            { approvalDecision: { not: 'approved' } },
+          ],
+        },
+      }))
+    )
+      throw new BadRequestException(
+        'Approve all subtasks before completing the main task',
+      );
 
     return this.prisma.task.update({
       where: { id: taskId },
@@ -2442,6 +2581,13 @@ export class TaskService {
           status: 'pending',
         },
       });
+      const approvedParent = await this.prisma.task.findUnique({ where: { id: taskId } });
+      if (approvedParent && !approvedParent.allowSubTaskCreation) {
+        await this.prisma.subTask.updateMany({
+          where: { taskId, status: 'in_active', approvalDecision: 'pending' },
+          data: { approvalDecision: 'approved', approvalReviewedBy: userId, approvalReviewedAt: new Date(), status: 'pending' },
+        });
+      }
       const approvedTask = await this.prisma.task.findUnique({
         where: { id: taskId },
         select: { title: true, projectId: true },
@@ -2744,13 +2890,10 @@ export class TaskService {
         'Task must be approved before creating subtasks',
       );
     }
-    if (!(task as any).allowSubTaskCreation) {
-      await this.prisma.task.update({
-        where: { id: taskId },
-        data: { allowSubTaskCreation: true },
-      });
-      (task as any).allowSubTaskCreation = true;
-    }
+    if (!task.allowSubTaskCreation)
+      throw new ForbiddenException(
+        'Additional subtasks are disabled for this task',
+      );
     this.assertCanWriteTaskPrice(userRole, dto.price);
 
     const unitIds = Array.from(
@@ -3016,10 +3159,7 @@ export class TaskService {
         },
       });
 
-      if (
-        dto.reviewDecision === 'approved' &&
-        approvedPrice > 0
-      ) {
+      if (dto.reviewDecision === 'approved' && approvedPrice > 0) {
         await this.createSubTaskChangeOrder(tx, {
           subTaskId,
           taskId,
@@ -3087,6 +3227,20 @@ export class TaskService {
     });
 
     if (!report) throw new NotFoundException('Report not found');
+
+    if (report.subTask && report.subTask.status !== 'review') {
+      if (report.subTask.status === 'completed' && report.reviewDecision === 'approved' && dto.reviewDecision === 'approved') {
+        return { message: 'Task report approved', report };
+      }
+      throw new BadRequestException('The worker must submit this subtask for review first');
+    }
+
+    if (
+      !report.subTaskId &&
+      (await this.prisma.subTask.count({ where: { taskId } }))
+    )
+      throw new BadRequestException('Review each subtask report separately');
+    this.assertCanWriteTaskPrice(userRole, dto.expenseAmount);
 
     const reviewText = dto.note ?? dto.reviewDescription ?? null;
 
@@ -3207,7 +3361,6 @@ export class TaskService {
           submittedAt:
             dto.reviewDecision === 'approved' ? new Date() : undefined,
           completedAt: dto.reviewDecision === 'approved' ? new Date() : null,
-          approvalDecision: dto.reviewDecision as any,
         },
       });
 
@@ -3217,7 +3370,6 @@ export class TaskService {
         where: { id: taskId },
         data: {
           completionDecision: dto.reviewDecision as any,
-          approvalDecision: dto.reviewDecision as any,
           completionReviewedBy: userId,
           completionReviewedAt: new Date(),
           completionNotes: reviewText,
@@ -3253,6 +3405,8 @@ export class TaskService {
     });
 
     if (!task) throw new NotFoundException('Task not found');
+    if (task.status === 'completed' && dto.reviewDecision === 'approved')
+      return { message: 'Task completed' };
     if (task.status !== 'review') {
       throw new BadRequestException('Task is not ready for final review');
     }
@@ -3260,7 +3414,7 @@ export class TaskService {
     // সব SubTask completed কিনা check করো — না হলে approve করা যাবে না
     if (dto.reviewDecision === 'approved') {
       const incompleteCount = task.subTasks.filter(
-        (st) => st.status !== 'completed',
+        (st) => st.status !== 'completed' || st.approvalDecision !== 'approved',
       ).length;
       if (incompleteCount > 0) {
         throw new BadRequestException(
