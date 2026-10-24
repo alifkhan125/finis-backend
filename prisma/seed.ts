@@ -25,30 +25,6 @@ async function main() {
       status: UserStatus.active,
       phone: '+10000000001',
     },
-    {
-      email: 'admin1@gmail.com',
-      fullName: 'Admin One',
-      passwordHash,
-      role: UserRole.admin,
-      status: UserStatus.active,
-      phone: '+10000000002',
-    },
-    {
-      email: 'manager1@gmail.com',
-      fullName: 'Manager One',
-      passwordHash,
-      role: UserRole.manager,
-      status: UserStatus.active,
-      phone: '+10000000003',
-    },
-    {
-      email: 'worker1@gmail.com',
-      fullName: 'Worker One',
-      passwordHash,
-      role: UserRole.worker,
-      status: UserStatus.active,
-      phone: '+10000000004',
-    },
   ];
 
   for (const user of users) {
