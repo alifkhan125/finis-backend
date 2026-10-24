@@ -21,9 +21,12 @@ describe('fixed unit task workflow', () => {
     const tx: any = {
       floor: { findMany: jest.fn(async ({ where }) => ['f1', 'f2'].filter(id => where.id.in.includes(id)).map(id => ({ id }))) },
       unit: { findMany: jest.fn(async ({ where }) => units.filter(u => where.OR.some((part: any) => part.id?.in.includes(u.id) || part.floorId?.in.includes(u.floorId)))) },
-      task: { create: jest.fn(async ({ data }) => ({ id: 't1', ...data })), findUnique: jest.fn(async () => ({ id: 't1', title: 'Painting', subTasks: [] })) },
+      task: { create: jest.fn(async ({ data }) => ({ id: 't1', ...data })), findUnique: jest.fn(async () => ({ id: 't1', title: 'Painting', subTasks: [] })), update: jest.fn() },
       taskFloor: { createMany: jest.fn() }, taskUnit: { createMany: jest.fn() },
-      subTask: { create: jest.fn(async ({ data }) => ({ id: `s-${data.unitId}`, ...data })) },
+      subTask: {
+        create: jest.fn(async ({ data }) => ({ id: `s-${data.unitId}`, ...data })),
+        aggregate: jest.fn().mockResolvedValue({ _sum: { price: 0 } }),
+      },
       subTaskUnit: { create: jest.fn() },
     };
     const prisma: any = { project: { findFirst: jest.fn().mockResolvedValue({ id: 'p1' }) }, $transaction: jest.fn((callback) => callback(tx)) };
@@ -46,10 +49,10 @@ describe('fixed unit task workflow', () => {
     expect(tx.subTask.create).toHaveBeenCalledTimes(1);
   });
 
-  it('preserves manual mode without generating children', async () => {
+  it('always generates one child per selected unit while keeping manual additions enabled', async () => {
     const { service, tx } = fixture();
     await service.createTask({ projectId: 'p1', title: 'Painting', floorIds: ['f1'], allowSubTaskCreation: true }, 'admin', 'admin');
-    expect(tx.subTask.create).not.toHaveBeenCalled();
+    expect(tx.subTask.create).toHaveBeenCalledTimes(2);
   });
 
   it('rejects missing locations and mismatched floor/unit scope before writes', async () => {

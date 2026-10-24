@@ -65,6 +65,20 @@ export class TaskService {
     return new Prisma.Decimal(value.toFixed(2));
   }
 
+  private async syncTaskPrice(
+    db: Prisma.TransactionClient | PrismaService,
+    taskId: string,
+  ) {
+    const total = await db.subTask.aggregate({
+      where: { taskId },
+      _sum: { price: true },
+    });
+    await db.task.update({
+      where: { id: taskId },
+      data: { price: total._sum.price ?? 0 },
+    });
+  }
+
   private async nextChangeOrderNumber(tx: Prisma.TransactionClient) {
     const year = new Date().getFullYear();
     const prefix = `CO-${year}-`;
@@ -1194,33 +1208,32 @@ export class TaskService {
             skipDuplicates: true,
           });
 
-          if (!dto.allowSubTaskCreation) {
-            for (const unitId of unitIds) {
-              const subTask = await tx.subTask.create({
-                data: {
-                  taskId: task.id,
-                  unitId,
-                  createdBy: userId,
-                  title: dto.title,
-                  description: dto.description ?? null,
-                  priority: dto.priority ?? TaskPriority.medium,
-                  dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
-                  estimatedHours: dto.estimatedHours ?? null,
-                  price,
-                  status: initialStatus,
-                  taskAssigneeId: workerAssignmentByUnit.get(unitId) ?? null,
-                  approvalDecision,
-                  approvalReviewedBy:
-                    approvalDecision === 'approved' ? userId : null,
-                  approvalReviewedAt:
-                    approvalDecision === 'approved' ? new Date() : null,
-                } as any,
-              });
-              await tx.subTaskUnit.create({
-                data: { subTaskId: subTask.id, unitId },
-              });
-            }
+          for (const unitId of unitIds) {
+            const subTask = await tx.subTask.create({
+              data: {
+                taskId: task.id,
+                unitId,
+                createdBy: userId,
+                title: dto.title,
+                description: dto.description ?? null,
+                priority: dto.priority ?? TaskPriority.medium,
+                dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
+                estimatedHours: dto.estimatedHours ?? null,
+                price,
+                status: initialStatus,
+                taskAssigneeId: workerAssignmentByUnit.get(unitId) ?? null,
+                approvalDecision,
+                approvalReviewedBy:
+                  approvalDecision === 'approved' ? userId : null,
+                approvalReviewedAt:
+                  approvalDecision === 'approved' ? new Date() : null,
+              } as any,
+            });
+            await tx.subTaskUnit.create({
+              data: { subTaskId: subTask.id, unitId },
+            });
           }
+          await this.syncTaskPrice(tx, task.id);
         }
 
         const created = await tx.task.findUnique({
@@ -2537,7 +2550,7 @@ export class TaskService {
       ? this.normalizePrice(dto.price)
       : undefined;
 
-    return this.prisma.subTask.update({
+    const updated = await this.prisma.subTask.update({
       where: { id: subTaskId },
       data: {
         title: dto.title,
@@ -2551,6 +2564,8 @@ export class TaskService {
         unit: { select: { id: true, name: true } },
       },
     });
+    await this.syncTaskPrice(this.prisma, subTask.taskId);
+    return updated;
   }
 
   async reviewTaskApproval(
@@ -2987,6 +3002,8 @@ export class TaskService {
       createdSubTasks.push(subTask);
     }
 
+    await this.syncTaskPrice(this.prisma, taskId);
+
     const updatedTask = await this.prisma.task.findUnique({
       where: { id: taskId },
       include: {
@@ -3171,6 +3188,8 @@ export class TaskService {
           notes: reviewText,
         });
       }
+
+      await this.syncTaskPrice(tx, taskId);
 
       return updated;
     });
