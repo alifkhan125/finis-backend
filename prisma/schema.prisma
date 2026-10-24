@@ -24,6 +24,7 @@ model SubscriptionPlan {
   hasCustomReporting    Boolean                @default(false) @map("has_custom_reporting")
   hasWhiteLabel         Boolean                @default(false) @map("has_white_label")
   supportLevel          String?                @map("support_level")
+    visibility             String                 @default("public")
   isActive              Boolean                @default(true) @map("is_active")
   createdAt             DateTime               @default(now()) @map("created_at")
   updatedAt             DateTime               @updatedAt @map("updated_at")

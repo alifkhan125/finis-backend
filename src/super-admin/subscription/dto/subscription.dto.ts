@@ -6,6 +6,7 @@ import {
   IsEmail,
   IsUUID,
   Min,
+  IsIn,
 } from 'class-validator';
 
 // ─── Plan DTOs ─────────────────────────────────────────────────────────────
@@ -13,6 +14,10 @@ import {
 export class CreatePlanDto {
   @IsString()
   name: string;
+
+  @IsString()
+  @IsIn(['public', 'private'])
+  visibility: 'public' | 'private';
 
   @IsNumber()
   @Min(0)
@@ -57,6 +62,10 @@ export class CreatePlanDto {
 }
 
 export class UpdatePlanDto {
+  @IsOptional()
+  @IsString()
+  @IsIn(['public', 'private'])
+  visibility?: 'public' | 'private';
   @IsOptional()
   @IsString()
   name?: string;

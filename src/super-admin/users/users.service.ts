@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
@@ -140,7 +140,7 @@ export class SuperAdminUsersService {
       });
 
       let subscriptionType = 'No';
-      if (u.role === 'super_admin' || u.isExemptFromSubscription) {
+      if (u.isExemptFromSubscription && !u.tenant?.plan) {
         subscriptionType = 'Free';
       } else {
         const latestPurchase = u.subscriptionPurchases?.[0];
@@ -172,6 +172,7 @@ export class SuperAdminUsersService {
 
       return {
         id: u.id,
+        tenantId: u.tenantId,
         name: u.fullName,
         fullName: u.fullName,
         email: u.email,
@@ -214,5 +215,89 @@ export class SuperAdminUsersService {
       data: { status },
       select: { id: true, status: true },
     });
+  }
+
+  async assignSubscriptionPlan(userId: string, planId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        fullName: true,
+        tenantId: true,
+        role: true,
+        companies: { select: { id: true, tenantId: true } },
+      },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const plan = await this.prisma.subscriptionPlan.findUnique({ where: { id: planId } });
+    if (!plan) throw new NotFoundException('Subscription plan not found');
+    if (!plan.isActive) throw new BadRequestException('This plan is not active');
+
+    const now = new Date();
+    const periodEnd = new Date(now);
+    periodEnd.setMonth(periodEnd.getMonth() + 1);
+
+    const tenantId = user.tenantId ?? user.companies.find((company) => company.tenantId)?.tenantId;
+    const result = await this.prisma.$transaction(async (tx) => {
+      const tenant = tenantId
+        ? await tx.tenant.update({
+            where: { id: tenantId },
+            data: {
+              planId,
+              status: 'active',
+              subscriptionStatus: 'active',
+              planInterval: 'monthly',
+              currentPeriodStart: now,
+              currentPeriodEnd: periodEnd,
+            },
+            include: { plan: true },
+          })
+        : await tx.tenant.create({
+            data: {
+              name: `${user.fullName} Workspace`,
+              planId,
+              status: 'active',
+              subscriptionStatus: 'active',
+              planInterval: 'monthly',
+              currentPeriodStart: now,
+              currentPeriodEnd: periodEnd,
+              users: { connect: { id: userId } },
+              companies: {
+                connect: user.companies.map((company) => ({ id: company.id })),
+              },
+            },
+            include: { plan: true },
+          });
+
+      if (user.tenantId !== tenant.id) {
+        await tx.user.update({
+          where: { id: userId },
+          data: { tenantId: tenant.id, isExemptFromSubscription: false },
+        });
+      } else {
+        await tx.user.update({
+          where: { id: userId },
+          data: { isExemptFromSubscription: false },
+        });
+      }
+
+      await tx.subscriptionPurchase.create({
+        data: {
+          tenantId: tenant.id,
+          userId,
+          planId,
+          planName: plan.name,
+          interval: 'monthly',
+          amount: plan.priceMonthly,
+          status: 'active',
+          startedAt: now,
+        },
+      });
+
+      return tenant;
+    });
+
+    return { tenantId: result.id, plan: result.plan, subscriptionStatus: result.subscriptionStatus };
   }
 }

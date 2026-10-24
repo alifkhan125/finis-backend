@@ -497,6 +497,8 @@ export class SubscriptionService {
     if (!plan) throw new NotFoundException('Subscription plan not found');
     if (!plan.isActive)
       throw new BadRequestException('This plan is not currently available');
+    if (plan.visibility !== 'public')
+      throw new BadRequestException('This plan is private and must be assigned by an admin');
 
     // 3. Tenant
     const tenant = user.tenantId
@@ -642,6 +644,8 @@ export class SubscriptionService {
     if (!plan) throw new NotFoundException('Subscription plan not found');
     if (!plan.isActive)
       throw new BadRequestException('This plan is not currently available');
+    if (plan.visibility !== 'public')
+      throw new BadRequestException('This plan is private and must be assigned by an admin');
 
     // 3. Tenant check
     const tenant = user.tenantId
@@ -1214,6 +1218,8 @@ export class SubscriptionService {
     if (!plan) throw new NotFoundException('Subscription plan not found');
     if (!plan.isActive)
       throw new BadRequestException('This plan is not currently available');
+    if (plan.visibility !== 'public')
+      throw new BadRequestException('This plan is private and must be assigned by an admin');
 
     const tenant = user.tenantId
       ? await this.prisma.tenant.findUnique({

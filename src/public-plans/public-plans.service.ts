@@ -7,7 +7,7 @@ export class PublicPlansService {
 
   async getActivePlans() {
     const plans = await this.prisma.subscriptionPlan.findMany({
-      where: { isActive: true },
+      where: { isActive: true, visibility: 'public' },
       orderBy: { priceMonthly: 'asc' },
       select: {
         id: true,

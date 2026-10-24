@@ -39,4 +39,12 @@ export class SuperAdminUsersController {
   ) {
     return this.usersService.updateUserStatus(userId, status);
   }
+
+  @Patch(':id/subscription')
+  async assignSubscriptionPlan(
+    @Param('id') userId: string,
+    @Body('planId') planId: string,
+  ) {
+    return this.usersService.assignSubscriptionPlan(userId, planId);
+  }
 }

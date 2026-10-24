@@ -142,6 +142,7 @@ export class SubscriptionService {
         hasCustomReporting: p.hasCustomReporting,
         hasWhiteLabel: p.hasWhiteLabel,
         supportLevel: p.supportLevel,
+        visibility: p.visibility,
         isActive: p.isActive,
         tenantCount: p._count.tenants,
         createdAt: p.createdAt,
@@ -170,6 +171,7 @@ export class SubscriptionService {
     const plan = await this.prisma.subscriptionPlan.create({
       data: {
         name: dto.name,
+        visibility: dto.visibility ?? 'public',
         priceMonthly: dto.priceMonthly,
         priceYearly: dto.priceYearly,
         maxCompanies: dto.maxCompanies,
@@ -222,7 +224,21 @@ export class SubscriptionService {
 
     const updated = await this.prisma.subscriptionPlan.update({
       where: { id: planId },
-      data: { ...dto },
+      data: {
+        ...(dto.name !== undefined ? { name: dto.name } : {}),
+        ...(dto.visibility !== undefined ? { visibility: dto.visibility } : {}),
+        ...(dto.priceMonthly !== undefined ? { priceMonthly: dto.priceMonthly } : {}),
+        ...(dto.priceYearly !== undefined ? { priceYearly: dto.priceYearly } : {}),
+        ...(dto.maxCompanies !== undefined ? { maxCompanies: dto.maxCompanies } : {}),
+        ...(dto.maxProjects !== undefined ? { maxProjects: dto.maxProjects } : {}),
+        ...(dto.maxUsers !== undefined ? { maxUsers: dto.maxUsers } : {}),
+        ...(dto.hasGeofencing !== undefined ? { hasGeofencing: dto.hasGeofencing } : {}),
+        ...(dto.hasAdvancedReporting !== undefined ? { hasAdvancedReporting: dto.hasAdvancedReporting } : {}),
+        ...(dto.hasCustomReporting !== undefined ? { hasCustomReporting: dto.hasCustomReporting } : {}),
+        ...(dto.hasWhiteLabel !== undefined ? { hasWhiteLabel: dto.hasWhiteLabel } : {}),
+        ...(dto.supportLevel !== undefined ? { supportLevel: dto.supportLevel } : {}),
+        ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+      },
     });
 
     const shouldResync =
