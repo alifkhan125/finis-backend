@@ -26,9 +26,14 @@ export class SuperAdminUsersService {
       return members.map((m) => m.user);
     }
 
-    // otherwise return users with detailed stats (default to company admins)
+    // otherwise return users with detailed stats (company admins + super admin)
     const users = await this.prisma.user.findMany({
-      where: role ? { role: role as any } : { role: 'admin' },
+      where:
+        role === 'super_admin'
+          ? { role: 'super_admin' }
+          : role && role !== 'admin'
+          ? { role: role as any }
+          : { OR: [{ role: 'admin' }, { role: 'super_admin' }] },
       orderBy: { createdAt: 'desc' },
       include: {
         tenant: {
@@ -53,6 +58,18 @@ export class SuperAdminUsersService {
             },
           },
         },
+        companyMembers: {
+          include: {
+            company: {
+              include: {
+                projects: true,
+                members: {
+                  include: { user: true },
+                },
+              },
+            },
+          },
+        },
         subscriptionPurchases: {
           take: 1,
           orderBy: { createdAt: 'desc' },
@@ -64,8 +81,12 @@ export class SuperAdminUsersService {
     return users.map((u) => {
       const directCompanies = u.companies || [];
       const tenantCompanies = u.tenant?.companies || [];
+      const memberCompanies = (u.companyMembers || [])
+        .map((cm) => cm.company)
+        .filter(Boolean);
+
       const companyMap = new Map();
-      for (const c of [...directCompanies, ...tenantCompanies]) {
+      for (const c of [...directCompanies, ...tenantCompanies, ...memberCompanies]) {
         companyMap.set(c.id, c);
       }
       const allCompanies = Array.from(companyMap.values());
@@ -96,8 +117,30 @@ export class SuperAdminUsersService {
         }
       }
 
+      const companiesList = allCompanies.map((c) => {
+        let mgrCount = 0;
+        let wkrCount = 0;
+        for (const m of c.members || []) {
+          if (m.user?.role === 'manager') mgrCount++;
+          if (m.user?.role === 'worker') wkrCount++;
+        }
+        return {
+          id: c.id,
+          name: c.name,
+          industry: c.industry ?? null,
+          email: c.email ?? null,
+          phone: c.phone ?? null,
+          logoUrl: c.logoUrl ?? null,
+          projectsCount: (c.projects || []).length,
+          managersCount: mgrCount,
+          workersCount: wkrCount,
+          isActive: c.isActive ?? true,
+          createdAt: c.createdAt,
+        };
+      });
+
       let subscriptionType = 'No';
-      if (u.isExemptFromSubscription) {
+      if (u.role === 'super_admin' || u.isExemptFromSubscription) {
         subscriptionType = 'Free';
       } else {
         const latestPurchase = u.subscriptionPurchases?.[0];
@@ -135,6 +178,7 @@ export class SuperAdminUsersService {
         phone: u.phone,
         avatarUrl: u.avatarUrl,
         role: u.role,
+        displayRole: u.role === 'super_admin' ? 'Admin' : u.role,
         status: u.status,
         totalCompany,
         totalManager: managerSet.size,
@@ -143,6 +187,7 @@ export class SuperAdminUsersService {
         totalProject,
         subscriptionType,
         isExemptFromSubscription: u.isExemptFromSubscription,
+        companies: companiesList,
         createdAt: u.createdAt,
         lastLoginAt: u.lastLoginAt,
       };

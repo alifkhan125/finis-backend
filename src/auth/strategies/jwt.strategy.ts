@@ -14,6 +14,9 @@ type JwtValidatedUser = {
   status: UserStatus;
   tenantId: string | null;
   avatarUrl: string | null;
+  isSwitched?: boolean;
+  originalRole?: string;
+  activeCompanyId?: string;
 };
 
 @Injectable()
@@ -45,6 +48,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     userId?: string;
     email?: string;
     role?: string;
+    switchedRole?: string;
+    isSwitched?: boolean;
+    companyId?: string;
   }) {
     const userId = payload.sub ?? payload.id ?? payload.userId ?? null;
     const email = payload.email ?? null;
@@ -86,6 +92,16 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         user.role !== 'super_admin')
     ) {
       throw new UnauthorizedException('User not active');
+    }
+
+    if (payload.switchedRole && user.role === 'super_admin') {
+      return {
+        ...user,
+        role: payload.switchedRole as UserRole,
+        isSwitched: true,
+        originalRole: 'super_admin',
+        activeCompanyId: payload.companyId,
+      };
     }
 
     return user;

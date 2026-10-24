@@ -1137,6 +1137,17 @@ export class SuperAdminCompaniesService {
       });
     }
 
+    // Ensure owner is added as company member
+    await this.prisma.companyMember
+      .create({
+        data: {
+          companyId: company.id,
+          userId: dto.ownerId,
+          role: 'owner',
+        },
+      })
+      .catch(() => undefined);
+
     return company;
   }
 

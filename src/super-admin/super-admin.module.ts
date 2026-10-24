@@ -7,6 +7,8 @@ import { SuperAdminCompaniesController } from './company/companies.controller';
 import { SuperAdminCompaniesService } from './company/companies.service';
 import { SuperAdminUsersController } from './users/users.controller';
 import { SuperAdminUsersService } from './users/users.service';
+import { SuperAdminSwitchController } from './switch/switch.controller';
+import { SuperAdminSwitchService } from './switch/switch.service';
 import { SuperAdminProjectController } from './projects/project.controller';
 import { SuperAdminProjectService } from './projects/project.service';
 import { TeamManagementController } from './team-management/team-management.controller';
@@ -28,11 +30,13 @@ import { AuthModule } from '../auth/auth.module';
     PayrollManagementController,
     ReportsController,
     SuperAdminUsersController,
+    SuperAdminSwitchController,
   ],
   providers: [
     SuperAdminDashboardService,
     SuperAdminCompaniesService,
     SuperAdminUsersService,
+    SuperAdminSwitchService,
     SuperAdminProjectService,
     TeamManagementService,
     PayrollManagementService,
