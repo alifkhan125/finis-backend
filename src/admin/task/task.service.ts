@@ -600,7 +600,8 @@ export class TaskService {
     };
   }
 
-  private toTaskResponse(task: any) {
+  private toTaskResponse(task: any, userRole: string = UserRole.admin) {
+    const canSeeFinancials = this.canManageTaskPrice(userRole);
     const {
       taskFloors,
       taskUnits,
@@ -638,7 +639,7 @@ export class TaskService {
         completionNotes: rest.completionNotes,
         dueDate: rest.dueDate,
         estimatedHours: rest.estimatedHours,
-        price: rest.price ?? 0,
+        ...(canSeeFinancials ? { price: rest.price ?? 0 } : {}),
       },
       floors: this.buildTaskLocations(task),
       location: this.buildTaskLocationLabel(task),
@@ -649,8 +650,12 @@ export class TaskService {
     };
   }
 
-  private toTaskWithSubTasksResponse(task: any) {
-    const base = this.toTaskResponse(task);
+  private toTaskWithSubTasksResponse(
+    task: any,
+    userRole: string = UserRole.admin,
+  ) {
+    const canSeeFinancials = this.canManageTaskPrice(userRole);
+    const base = this.toTaskResponse(task, userRole);
     return {
       ...base,
       subTasks: (task.subTasks ?? []).map((subTask: any) => ({
@@ -660,7 +665,7 @@ export class TaskService {
         priority: subTask.priority,
         dueDate: subTask.dueDate,
         estimatedHours: subTask.estimatedHours,
-        price: subTask.price ?? 0,
+        ...(canSeeFinancials ? { price: subTask.price ?? 0 } : {}),
         status: subTask.status,
         approvalDecision: subTask.approvalDecision,
         approvalNotes: subTask.approvalNotes,
@@ -693,7 +698,12 @@ export class TaskService {
     };
   }
 
-  private toTaskDetailResponse(task: any, expenses: any[] = []) {
+  private toTaskDetailResponse(
+    task: any,
+    expenses: any[] = [],
+    userRole: string = UserRole.admin,
+  ) {
+    const canSeeFinancials = this.canManageTaskPrice(userRole);
     const latestReport = task.reports?.[0] ?? null;
 
     return {
@@ -705,7 +715,7 @@ export class TaskService {
       startDate: task.createdAt ?? null,
       dueDate: task.dueDate,
       estimatedHours: task.estimatedHours ?? null,
-      price: task.price ?? 0,
+      ...(canSeeFinancials ? { price: task.price ?? 0 } : {}),
       status: task.status,
       approvalDecision:
         task.approvalDecision === 'rejected' ||
@@ -752,7 +762,7 @@ export class TaskService {
         (s: any) => s.status === 'completed',
       ).length,
       subTasks: (task.subTasks ?? []).map((subTask: any) =>
-        this.toSimpleSubTaskResponse(subTask),
+        this.toSimpleSubTaskResponse(subTask, userRole),
       ),
 
       // ── Extras ──
@@ -777,8 +787,12 @@ export class TaskService {
     };
   }
 
-  private toSimpleSubTaskResponse(subTask: any) {
+  private toSimpleSubTaskResponse(
+    subTask: any,
+    userRole: string = UserRole.admin,
+  ) {
     if (!subTask) return null;
+    const canSeeFinancials = this.canManageTaskPrice(userRole);
     const latestReport = subTask.reports?.[0] ?? null;
 
     return {
@@ -789,7 +803,7 @@ export class TaskService {
       startDate: subTask.createdAt ?? null,
       dueDate: subTask.dueDate,
       estimatedHours: subTask.estimatedHours,
-      price: subTask.price ?? 0,
+      ...(canSeeFinancials ? { price: subTask.price ?? 0 } : {}),
       status: subTask.status,
       approvalDecision: subTask.approvalDecision,
       approvalNotes: subTask.approvalNotes ?? null,
@@ -799,7 +813,12 @@ export class TaskService {
       reportSummary: latestReport?.notes ?? null,
       task: subTask.task
         ? {
-            ...subTask.task,
+            ...(this.canManageTaskPrice(userRole)
+              ? subTask.task
+              : (() => {
+                  const { price: _price, ...safeTask } = subTask.task;
+                  return safeTask;
+                })()),
             workflow: this.buildWorkflowSnapshot(subTask.task),
           }
         : null,
@@ -810,7 +829,11 @@ export class TaskService {
     };
   }
 
-  private toAdminSubTaskDetailResponse(subTask: any, taskExpenses: any[] = []) {
+  private toAdminSubTaskDetailResponse(
+    subTask: any,
+    taskExpenses: any[] = [],
+    userRole: string = UserRole.admin,
+  ) {
     if (!subTask) return null;
 
     const latestReport = subTask.reports?.[0] ?? null;
@@ -834,7 +857,9 @@ export class TaskService {
       approvalNotes: subTask.approvalNotes ?? null,
       dueDate: subTask.dueDate,
       estimatedHours: subTask.estimatedHours,
-      price: subTask.price ?? 0,
+      ...(this.canManageTaskPrice(userRole)
+        ? { price: subTask.price ?? 0 }
+        : {}),
       estimatedTimeLabel:
         subTask.estimatedHours !== null && subTask.estimatedHours !== undefined
           ? `${subTask.estimatedHours} hours`
@@ -846,7 +871,12 @@ export class TaskService {
       updatedAt: subTask.updatedAt,
       task: subTask.task
         ? {
-            ...subTask.task,
+            ...(this.canManageTaskPrice(userRole)
+              ? subTask.task
+              : (() => {
+                  const { price: _price, ...safeTask } = subTask.task;
+                  return safeTask;
+                })()),
             workflow: this.buildWorkflowSnapshot(subTask.task),
           }
         : null,
@@ -1009,7 +1039,7 @@ export class TaskService {
     ]);
 
     return {
-      data: data.map((task) => this.toTaskResponse(task)),
+      data: data.map((task) => this.toTaskResponse(task, userRole)),
       meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
     };
   }
@@ -1311,7 +1341,7 @@ export class TaskService {
       [userId],
     );
 
-    return this.toTaskResponse(created);
+    return this.toTaskResponse(created, userRole);
   }
 
   async getTaskDetails(taskId: string, userId: string, userRole: string) {
@@ -1514,7 +1544,7 @@ export class TaskService {
     return this.toTaskDetailResponse(task, [
       ...expenses,
       ...normalizedReimbursementExpenses,
-    ]);
+    ], userRole);
   }
 
   async getTaskLocations(taskId: string, userId: string, userRole: string) {
@@ -1649,7 +1679,7 @@ export class TaskService {
 
     return {
       data: subTasks.map((subTask: any) =>
-        this.toSimpleSubTaskResponse(subTask),
+        this.toSimpleSubTaskResponse(subTask, userRole),
       ),
     };
   }
@@ -1737,7 +1767,7 @@ export class TaskService {
 
     await this.verifyTaskAccess(subTask.taskId, userId, userRole);
 
-    return this.toSimpleSubTaskResponse(subTask);
+    return this.toSimpleSubTaskResponse(subTask, userRole);
   }
 
   async deleteSubTask(subTaskId: string, userId: string, userRole: string) {
@@ -1762,6 +1792,7 @@ export class TaskService {
     await this.prisma.subTask.delete({
       where: { id: subTaskId },
     });
+    await this.syncTaskPrice(this.prisma, subTask.taskId);
 
     return {
       message: 'Sub task deleted successfully',
@@ -2214,7 +2245,7 @@ export class TaskService {
     return this.toAdminSubTaskDetailResponse(subTask, [
       ...taskExpenses,
       ...normalizedReimbursementExpenses,
-    ]);
+    ], userRole);
   }
 
   async reviewSubTaskApproval(
@@ -2435,7 +2466,9 @@ export class TaskService {
                 priority: updatedTask.priority,
                 dueDate: updatedTask.dueDate,
                 estimatedHours: updatedTask.estimatedHours,
-                price: updatedTask.price,
+                // New units start without a value. Existing child values remain
+                // unchanged and the parent is recalculated from all subtasks.
+                price: 0,
                 status:
                   updatedTask.approvalDecision === 'approved'
                     ? 'pending'
@@ -2456,6 +2489,7 @@ export class TaskService {
               data: { status: 'pending', completionDecision: 'pending' },
             });
           }
+          await this.syncTaskPrice(tx, taskId);
         }
         if (
           expenseDescription ||
@@ -2557,6 +2591,7 @@ export class TaskService {
         description: dto.description,
         priority: dto.priority as any,
         dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
+        estimatedHours: dto.estimatedHours,
         ...(normalizedPrice !== undefined ? { price: normalizedPrice } : {}),
       },
       include: {
@@ -2890,7 +2925,7 @@ export class TaskService {
       [userId],
     );
 
-    return this.toTaskResponse(updated);
+    return this.toTaskResponse(updated, userRole);
   }
 
   async createSubTask(
@@ -3114,7 +3149,7 @@ export class TaskService {
 
     return {
       message: `${createdSubTasks.length} subtasks created`,
-      data: this.toTaskWithSubTasksResponse(updatedTask),
+      data: this.toTaskWithSubTasksResponse(updatedTask, userRole),
     };
   }
 
@@ -3226,7 +3261,7 @@ export class TaskService {
 
     return {
       message: `Sub task ${dto.reviewDecision}`,
-      subTask: this.toSimpleSubTaskResponse(reviewedSubTask),
+      subTask: this.toSimpleSubTaskResponse(reviewedSubTask, userRole),
     };
   }
 

@@ -237,6 +237,11 @@ export class UpdateSubTaskDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
+  estimatedHours?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
   price?: number;
 }
 

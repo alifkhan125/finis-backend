@@ -25,7 +25,13 @@ export class ReportsService {
   ) {
     const start = new Date(startDate);
     const end = new Date(endDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      throw new BadRequestException('Invalid report date range');
+    }
     end.setHours(23, 59, 59, 999);
+    if (start > end) {
+      throw new BadRequestException('Start date must be before end date');
+    }
     return { start, end };
   }
 
@@ -509,6 +515,14 @@ export class ReportsService {
     userId: string,
     userRole: string,
   ) {
+    if (
+      userRole === UserRole.manager &&
+      [ReportType.payroll, ReportType.project_invoices].includes(dto.type)
+    ) {
+      throw new ForbiddenException(
+        'Managers cannot access payroll or billing reports',
+      );
+    }
     const { start, end } = this.getDateRange(
       dto.frequency,
       dto.startDate,
