@@ -186,6 +186,12 @@ export class SuperAdminUsersService {
         totalWorker: workerSet.size,
         project: totalProject,
         totalProject,
+        totalUsers: 1 + managerSet.size + workerSet.size,
+        subscriptionLimits: {
+          companies: u.tenant?.plan?.maxCompanies ?? null,
+          projects: u.tenant?.plan?.maxProjects ?? null,
+          users: u.tenant?.plan?.maxUsers ?? null,
+        },
         subscriptionType,
         isExemptFromSubscription: u.isExemptFromSubscription,
         companies: companiesList,
