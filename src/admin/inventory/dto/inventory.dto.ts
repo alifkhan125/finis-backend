@@ -16,8 +16,10 @@ import { Type } from 'class-transformer';
 // ─────────────────────────────────────────────
 
 export class CreateInventoryItemDto {
+  /** Optional for admin global inventory; retained for legacy manager flows. */
+  @IsOptional()
   @IsUUID()
-  projectId!: string;
+  projectId?: string;
 
   @IsString()
   @IsNotEmpty()

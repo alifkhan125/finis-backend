@@ -159,8 +159,8 @@ export class InventoryController {
    */
   @Post()
   @Roles('super_admin', 'admin', 'manager')
-  createItem(@Body() dto: CreateInventoryItemDto) {
-    return this.inventoryService.createItem(dto);
+  createItem(@Body() dto: CreateInventoryItemDto, @Request() req: any) {
+    return this.inventoryService.createItem(dto, req.user);
   }
 
   /**

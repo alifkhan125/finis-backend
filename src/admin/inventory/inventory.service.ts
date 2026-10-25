@@ -46,7 +46,8 @@ export class InventoryService {
    * others      → { id: { in: [...assigned project ids] } }
    */
   private async getProjectScope(user: AuthUser): Promise<Record<string, any>> {
-    if (user.role === 'super_admin') return {};
+    // Inventory is tenant/company-owned. Super Admin must not see company inventory.
+    if (user.role === 'super_admin') return { id: { in: [] } };
 
     if (user.role === 'admin') {
       let companyId = user.companyId;
@@ -439,15 +440,19 @@ export class InventoryService {
   // CREATE / UPDATE / DELETE
   // ════════════════════════════════════════════
 
-  async createItem(dto: CreateInventoryItemDto) {
-    const project = await this.prisma.project.findUnique({
-      where: { id: dto.projectId },
-    });
+  async createItem(dto: CreateInventoryItemDto, user: AuthUser) {
+    if (user.role === 'super_admin') {
+      throw new ForbiddenException('Super Admin cannot access company inventory');
+    }
+    const scope = await this.getProjectScope(user);
+    const project = dto.projectId
+      ? await this.prisma.project.findFirst({ where: { id: dto.projectId, ...scope } })
+      : await this.prisma.project.findFirst({ where: scope, orderBy: { createdAt: 'asc' } });
     if (!project) throw new NotFoundException('Project not found');
 
     return this.prisma.inventoryItem.create({
       data: {
-        projectId: dto.projectId,
+        projectId: project.id,
         name: dto.name,
         category: dto.category,
         location: dto.location,

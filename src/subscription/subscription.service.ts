@@ -1055,9 +1055,14 @@ export class SubscriptionService {
   async getAdminSubscriptionStatus(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, tenantId: true },
+      select: {
+        id: true,
+        tenantId: true,
+        companies: { select: { tenantId: true }, take: 1 },
+      },
     });
-    if (!user?.tenantId) {
+    const resolvedTenantId = user?.tenantId ?? user?.companies[0]?.tenantId ?? null;
+    if (!resolvedTenantId) {
       return {
         tenantId: null,
         plan: null,
@@ -1071,7 +1076,7 @@ export class SubscriptionService {
     }
 
     const tenant = await this.prisma.tenant.findUnique({
-      where: { id: user.tenantId },
+      where: { id: resolvedTenantId },
       include: { plan: true },
     });
     if (!tenant) throw new NotFoundException('Tenant not found');

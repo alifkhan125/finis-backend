@@ -1171,12 +1171,19 @@ export class SubscriptionService {
   async getMySubscription(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, tenantId: true, role: true },
+      select: {
+        id: true,
+        email: true,
+        tenantId: true,
+        role: true,
+        companies: { select: { tenantId: true }, take: 1 },
+      },
     });
 
-    const tenant = user?.tenantId
+    const resolvedTenantId = user?.tenantId ?? user?.companies[0]?.tenantId;
+    const tenant = resolvedTenantId
       ? await this.prisma.tenant.findUnique({
-          where: { id: user.tenantId },
+          where: { id: resolvedTenantId },
           include: {
             plan: true,
             _count: { select: { users: true, companies: true } },
@@ -1219,6 +1226,15 @@ export class SubscriptionService {
             name: tenant.plan.name,
             priceMonthly: tenant.plan.priceMonthly,
             priceYearly: tenant.plan.priceYearly,
+            visibility: tenant.plan.visibility,
+            maxCompanies: tenant.plan.maxCompanies,
+            maxProjects: tenant.plan.maxProjects,
+            maxUsers: tenant.plan.maxUsers,
+            hasGeofencing: tenant.plan.hasGeofencing,
+            hasAdvancedReporting: tenant.plan.hasAdvancedReporting,
+            hasCustomReporting: tenant.plan.hasCustomReporting,
+            hasWhiteLabel: tenant.plan.hasWhiteLabel,
+            supportLevel: tenant.plan.supportLevel,
           }
         : null,
       subscriptionStatus: tenant.subscriptionStatus ?? null,
