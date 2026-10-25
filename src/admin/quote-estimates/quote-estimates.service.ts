@@ -110,6 +110,13 @@ export class QuoteEstimatesService {
     return normalized ? normalized : null;
   }
 
+  private normalizeDisplayName(value: string) {
+    return value
+      .trim()
+      .toLocaleLowerCase()
+      .replace(/\b\w/g, (character) => character.toLocaleUpperCase());
+  }
+
   private normalizeProjectType(value?: string | null): ProjectType | null {
     const normalized = this.normalizeText(value)?.toLowerCase();
     if (!normalized) return null;
@@ -259,8 +266,8 @@ export class QuoteEstimatesService {
       data: {
         quoteNumber: await this.generateQuoteNumber(),
         companyId: dto.companyId,
-        projectName: dto.projectName.trim(),
-        clientName: dto.clientName.trim(),
+        projectName: this.normalizeDisplayName(dto.projectName),
+        clientName: this.normalizeDisplayName(dto.clientName),
         clientEmail: this.normalizeText(dto.clientEmail),
         clientPhone: this.normalizeText(dto.clientPhone),
         projectAddress: this.normalizeText(dto.projectAddress),
@@ -394,10 +401,10 @@ export class QuoteEstimatesService {
       data: {
         ...(dto.companyId !== undefined ? { companyId: dto.companyId } : {}),
         ...(dto.projectName !== undefined
-          ? { projectName: dto.projectName.trim() }
+          ? { projectName: this.normalizeDisplayName(dto.projectName) }
           : {}),
         ...(dto.clientName !== undefined
-          ? { clientName: dto.clientName.trim() }
+          ? { clientName: this.normalizeDisplayName(dto.clientName) }
           : {}),
         ...(dto.clientEmail !== undefined
           ? { clientEmail: this.normalizeText(dto.clientEmail) }
@@ -786,7 +793,8 @@ export class QuoteEstimatesService {
           });
           createdFloors.push({ id: floor.id, floorNumber });
           for (let unitOffset = 0; unitOffset < existing.unitsPerFloor; unitOffset++) {
-            const unitIndex = unitStart + (floorNumber - floorStart) * 100 + unitOffset;
+            const unitIncrement = String(unitStart).length >= 4 ? 1000 : 100;
+            const unitIndex = unitStart + (floorNumber - floorStart) * unitIncrement + unitOffset;
             const unit = await tx.unit.create({
               data: {
                 floorId: floor.id,

@@ -3,6 +3,7 @@ import {
   IsArray,
   IsDateString,
   IsEnum,
+  IsInt,
   IsNumber,
   IsOptional,
   IsIn,
@@ -154,25 +155,25 @@ export class CreateQuoteEstimateDto {
   unitsPerFloor?: number;
 
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(1)
   @Type(() => Number)
   floorStart?: number;
 
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(1)
   @Type(() => Number)
   floorEnd?: number;
 
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(1)
   @Type(() => Number)
   unitStart?: number;
 
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(1)
   @Type(() => Number)
   unitEnd?: number;
@@ -254,25 +255,25 @@ export class UpdateQuoteEstimateDto {
   unitsPerFloor?: number;
 
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(1)
   @Type(() => Number)
   floorStart?: number;
 
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(1)
   @Type(() => Number)
   floorEnd?: number;
 
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(1)
   @Type(() => Number)
   unitStart?: number;
 
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(1)
   @Type(() => Number)
   unitEnd?: number;
