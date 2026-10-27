@@ -16,6 +16,7 @@ import {
   UserRole,
 } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ProjectService } from '../project/project.service';
 import {
   AcceptQuoteEstimateDto,
   CreateQuoteEstimateDto,
@@ -43,6 +44,7 @@ export class QuoteEstimatesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly projectService: ProjectService,
   ) {}
 
   private assertV2Admin(role: string) {
@@ -69,10 +71,9 @@ export class QuoteEstimatesService {
   private assertAdmin(role: string) {
     if (
       role !== UserRole.admin &&
-      role !== UserRole.super_admin &&
-      role !== UserRole.manager
+      role !== UserRole.super_admin
     ) {
-      throw new ForbiddenException('Admin or Manager access required');
+      throw new ForbiddenException('Admin access required');
     }
   }
 
@@ -140,6 +141,10 @@ export class QuoteEstimatesService {
       .replace(/\b\w/g, (character) => character.toLocaleUpperCase());
   }
 
+  private locationToken(value: string) {
+    return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  }
+
   private normalizeProjectType(value?: string | null): ProjectType | null {
     const normalized = this.normalizeText(value)?.toLowerCase();
     if (!normalized) return null;
@@ -149,6 +154,12 @@ export class QuoteEstimatesService {
       return normalized as ProjectType;
     }
     return null;
+  }
+
+  private assertDateRange(startDate?: string | Date | null, endDate?: string | Date | null) {
+    if (startDate && endDate && new Date(endDate).getTime() < new Date(startDate).getTime()) {
+      throw new BadRequestException('End date must be on or after start date');
+    }
   }
 
   private calculateTotals(
@@ -205,9 +216,24 @@ export class QuoteEstimatesService {
     };
   }
 
-  private async assertCompany(companyId: string) {
+  private async assertCompany(companyId: string, userId: string, role: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { tenantId: true },
+    });
     const company = await this.prisma.company.findFirst({
-      where: { id: companyId, isActive: true },
+      where: {
+        id: companyId,
+        isActive: true,
+        ...(role === UserRole.super_admin
+          ? {}
+          : {
+              OR: [
+                { ownerId: userId },
+                ...(user?.tenantId ? [{ tenantId: user.tenantId }] : []),
+              ],
+            }),
+      },
       select: { id: true },
     });
     if (!company) throw new BadRequestException('Invalid company ID');
@@ -262,9 +288,12 @@ export class QuoteEstimatesService {
     return `${prefix}${timestamp}-${suffix}`;
   }
 
-  private async getQuoteOrThrow(id: string) {
-    const quote = await this.prisma.quoteEstimate.findUnique({
-      where: { id },
+  private async getQuoteOrThrow(id: string, userId: string, role: string) {
+    const quote = await this.prisma.quoteEstimate.findFirst({
+      where: {
+        id,
+        ...(role === UserRole.super_admin ? {} : { createdById: userId }),
+      },
       include: includeQuoteEstimate,
     });
     if (!quote) throw new NotFoundException('Quote estimate not found');
@@ -277,7 +306,8 @@ export class QuoteEstimatesService {
     role: string,
   ) {
     this.assertAdmin(role);
-    await this.assertCompany(dto.companyId);
+    await this.assertCompany(dto.companyId, userId, role);
+    this.assertDateRange(dto.startDate, dto.endDate);
     const totals = this.calculateTotals(
       dto.tasks,
       dto.discountAmount ?? 0,
@@ -310,6 +340,16 @@ export class QuoteEstimatesService {
         discountAmount: totals.discountAmount,
         taxAmount: totals.taxAmount,
         totalAmount: totals.totalAmount,
+        schemaVersion: dto.schemaVersion ?? 1,
+        ...(dto.quotationDetails !== undefined
+          ? { quotationDetails: dto.quotationDetails as Prisma.InputJsonValue }
+          : {}),
+        ...(dto.buildingPlan !== undefined
+          ? { buildingPlan: dto.buildingPlan as Prisma.InputJsonValue }
+          : {}),
+        ...(dto.pricingConfig !== undefined
+          ? { pricingConfig: dto.pricingConfig as Prisma.InputJsonValue }
+          : {}),
         createdById: userId,
         tasks: {
           create: totals.tasks,
@@ -324,11 +364,12 @@ export class QuoteEstimatesService {
     };
   }
 
-  async findAll(query: QuoteEstimateFilterDto, role: string) {
+  async findAll(query: QuoteEstimateFilterDto, userId: string, role: string) {
     this.assertAdmin(role);
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 20, 100);
     const where: Prisma.QuoteEstimateWhereInput = {
+      ...(role === UserRole.super_admin ? {} : { createdById: userId }),
       ...(query.companyId ? { companyId: query.companyId } : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(query.search
@@ -359,18 +400,19 @@ export class QuoteEstimatesService {
     };
   }
 
-  async findOne(id: string, role: string) {
+  async findOne(id: string, userId: string, role: string) {
     this.assertAdmin(role);
-    return this.serialize(await this.getQuoteOrThrow(id));
+    return this.serialize(await this.getQuoteOrThrow(id, userId, role));
   }
 
-  async update(id: string, dto: UpdateQuoteEstimateDto, role: string) {
+  async update(id: string, dto: UpdateQuoteEstimateDto, userId: string, role: string) {
     this.assertAdmin(role);
-    const existing = await this.getQuoteOrThrow(id);
-    if (dto.companyId) await this.assertCompany(dto.companyId);
+    const existing = await this.getQuoteOrThrow(id, userId, role);
+    if (dto.companyId) await this.assertCompany(dto.companyId, userId, role);
     if (existing.status === QuoteEstimateStatus.converted) {
       throw new BadRequestException('Converted quote estimates cannot be edited');
     }
+    this.assertDateRange(dto.startDate ?? existing.startDate, dto.endDate ?? existing.endDate);
 
     const nextTasks =
       dto.tasks ??
@@ -473,6 +515,16 @@ export class QuoteEstimatesService {
         discountAmount: totals.discountAmount,
         taxAmount: totals.taxAmount,
         totalAmount: totals.totalAmount,
+        ...(dto.schemaVersion !== undefined ? { schemaVersion: dto.schemaVersion } : {}),
+        ...(dto.quotationDetails !== undefined
+          ? { quotationDetails: dto.quotationDetails as Prisma.InputJsonValue }
+          : {}),
+        ...(dto.buildingPlan !== undefined
+          ? { buildingPlan: dto.buildingPlan as Prisma.InputJsonValue }
+          : {}),
+        ...(dto.pricingConfig !== undefined
+          ? { pricingConfig: dto.pricingConfig as Prisma.InputJsonValue }
+          : {}),
         ...(dto.tasks !== undefined
           ? {
               tasks: {
@@ -491,9 +543,9 @@ export class QuoteEstimatesService {
     };
   }
 
-  async remove(id: string, role: string) {
+  async remove(id: string, userId: string, role: string) {
     this.assertAdmin(role);
-    const existing = await this.getQuoteOrThrow(id);
+    const existing = await this.getQuoteOrThrow(id, userId, role);
     if (existing.status === QuoteEstimateStatus.converted) {
       throw new BadRequestException('Converted quote estimates cannot be deleted');
     }
@@ -501,14 +553,14 @@ export class QuoteEstimatesService {
     return { message: 'Quote estimate deleted successfully', id };
   }
 
-  async send(id: string, role: string) {
+  async send(id: string, userId: string, role: string) {
     this.assertAdmin(role);
-    const existing = await this.getQuoteOrThrow(id);
+    const existing = await this.getQuoteOrThrow(id, userId, role);
     if (!existing.clientEmail) {
       throw new BadRequestException('Client email is required before sending');
     }
 
-    const pdf = await this.exportPdf(id, role);
+    const pdf = await this.exportPdf(id, userId, role);
     await this.createMailTransporter().sendMail({
       from: this.getMailFromAddress(),
       to: existing.clientEmail,
@@ -542,9 +594,9 @@ export class QuoteEstimatesService {
     };
   }
 
-  async exportPdf(id: string, role: string) {
+  async exportPdf(id: string, userId: string, role: string) {
     this.assertAdmin(role);
-    const quote = await this.getQuoteOrThrow(id);
+    const quote = await this.getQuoteOrThrow(id, userId, role);
     const doc = new PDFDocument({ size: 'A4', margin: 44 });
     const chunks: Buffer[] = [];
 
@@ -666,7 +718,7 @@ export class QuoteEstimatesService {
     role: string,
   ) {
     this.assertAdmin(role);
-    await this.getQuoteOrThrow(id);
+    await this.getQuoteOrThrow(id, userId, role);
     const quote = await this.prisma.quoteEstimate.update({
       where: { id },
       data: {
@@ -688,9 +740,9 @@ export class QuoteEstimatesService {
     };
   }
 
-  async reject(id: string, dto: RejectQuoteEstimateDto, role: string) {
+  async reject(id: string, dto: RejectQuoteEstimateDto, userId: string, role: string) {
     this.assertAdmin(role);
-    await this.getQuoteOrThrow(id);
+    await this.getQuoteOrThrow(id, userId, role);
     const quote = await this.prisma.quoteEstimate.update({
       where: { id },
       data: {
@@ -708,9 +760,9 @@ export class QuoteEstimatesService {
     };
   }
 
-  async cancel(id: string, role: string) {
+  async cancel(id: string, userId: string, role: string) {
     this.assertAdmin(role);
-    await this.getQuoteOrThrow(id);
+    await this.getQuoteOrThrow(id, userId, role);
     const quote = await this.prisma.quoteEstimate.update({
       where: { id },
       data: { status: QuoteEstimateStatus.cancelled },
@@ -733,7 +785,7 @@ export class QuoteEstimatesService {
     role: string,
   ) {
     this.assertAdmin(role);
-    const existing = await this.getQuoteOrThrow(id);
+    const existing = await this.getQuoteOrThrow(id, userId, role);
     if (existing.convertedProjectId) {
       const existingTaskCount = await this.prisma.task.count({
         where: { projectId: existing.convertedProjectId },
@@ -749,11 +801,14 @@ export class QuoteEstimatesService {
           project: await this.prisma.project.findUnique({
             where: { id: existing.convertedProjectId },
           }),
-          quote: this.serialize(await this.getQuoteOrThrow(id)),
+          quote: this.serialize(await this.getQuoteOrThrow(id, userId, role)),
         };
       }
       return {
         message: 'Quote estimate already converted to project',
+        project: await this.prisma.project.findUnique({
+          where: { id: existing.convertedProjectId },
+        }),
         quote: this.serialize(existing),
       };
     }
@@ -768,8 +823,29 @@ export class QuoteEstimatesService {
       );
     }
 
-    const projectType = this.normalizeProjectType(existing.unitType);
+    await this.projectService.assertProjectCreationAllowed(
+      existing.companyId,
+      userId,
+      role,
+    );
+
+    const projectType =
+      this.normalizeProjectType(existing.projectType) ??
+      this.normalizeProjectType(existing.propertyType) ??
+      this.normalizeProjectType(existing.unitType);
     const contractTotal = this.toDecimal(Number(existing.totalAmount));
+    const buildingPlan = existing.buildingPlan as {
+      floors?: Array<{
+        label?: string;
+        selected?: boolean;
+        units?: Array<{ label?: string; selected?: boolean }>;
+      }>;
+    } | null;
+    const plannedFloors = Array.isArray(buildingPlan?.floors)
+      ? buildingPlan.floors.filter(
+          (floor) => floor.selected !== false && floor.units?.some((unit) => unit.selected !== false),
+        )
+      : [];
     const project = await this.prisma.$transaction(async (tx) => {
       const createdProject = await tx.project.create({
         data: {
@@ -797,7 +873,34 @@ export class QuoteEstimatesService {
       const createdFloors: { id: string; floorNumber: number }[] = [];
       const createdUnits: { id: string; floorId: string; name: string }[] = [];
 
-      if (existing.floorsCount && existing.unitsPerFloor) {
+      if (plannedFloors.length) {
+        for (const [floorIndex, plannedFloor] of plannedFloors.entries()) {
+          const floorNumber = floorIndex + 1;
+          const floor = await tx.floor.create({
+            data: {
+              projectId: createdProject.id,
+              name: this.normalizeText(plannedFloor.label) ?? `Floor ${floorNumber}`,
+              floorNumber,
+              status: 'pending',
+              progress: 0,
+            },
+          });
+          createdFloors.push({ id: floor.id, floorNumber });
+          for (const [unitIndex, plannedUnit] of (plannedFloor.units ?? [])
+            .filter((unit) => unit.selected !== false)
+            .entries()) {
+            const unit = await tx.unit.create({
+              data: {
+                floorId: floor.id,
+                name: this.normalizeText(plannedUnit.label) ?? String(unitIndex + 1),
+                status: 'pending',
+                progress: 0,
+              },
+            });
+            createdUnits.push({ id: unit.id, floorId: floor.id, name: unit.name });
+          }
+        }
+      } else if (existing.floorsCount && existing.unitsPerFloor) {
         const floorStart = existing.floorStart ?? 1;
         const unitStart = existing.unitStart ?? 1;
         for (
@@ -835,6 +938,18 @@ export class QuoteEstimatesService {
         }
       }
 
+      await tx.messageThread.create({
+        data: {
+          type: 'group',
+          name: createdProject.name,
+          projectId: createdProject.id,
+          isActive: true,
+          participants: {
+            create: { userId, role },
+          },
+        },
+      });
+
       await this.createTasksFromQuoteLines(
         createdProject.id,
         existing,
@@ -867,7 +982,7 @@ export class QuoteEstimatesService {
     return {
       message: 'Quote estimate accepted and project created successfully',
       project,
-      quote: this.serialize(await this.getQuoteOrThrow(id)),
+      quote: this.serialize(await this.getQuoteOrThrow(id, userId, role)),
     };
   }
 
@@ -879,7 +994,7 @@ export class QuoteEstimatesService {
   ) {
     const floors = await tx.floor.findMany({
       where: { projectId },
-      select: { id: true, floorNumber: true },
+      select: { id: true, floorNumber: true, name: true },
       orderBy: { floorNumber: 'asc' },
     });
     const units = await tx.unit.findMany({
@@ -918,9 +1033,12 @@ export class QuoteEstimatesService {
             const floor = floors.find((item) => item.id === unit.floorId);
             return Boolean(
               floor &&
-                plannedLocationKeys.includes(
+                (plannedLocationKeys.includes(
                   `floor_${floor.floorNumber}_unit_${unit.name.toLowerCase()}`,
-                ),
+                ) ||
+                  plannedLocationKeys.includes(
+                    `floor_${this.locationToken(floor.name)}_unit_${this.locationToken(unit.name)}`,
+                  )),
             );
           })
         : matchedUnit

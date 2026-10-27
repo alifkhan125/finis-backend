@@ -306,6 +306,21 @@ export class ProjectService {
     }
   }
 
+  /**
+   * Reuses the same company/subscription gates for internal project creation
+   * flows (for example, an accepted quotation) without exposing a new route.
+   */
+  async assertProjectCreationAllowed(
+    companyId: string,
+    userId: string,
+    userRole?: string,
+  ) {
+    await this.verifyCompanyAccess(companyId, userId, userRole);
+    if (!this.isSuperAdmin(userRole)) {
+      await this.checkProjectLimit(userId);
+    }
+  }
+
   private async checkUserLimit(adminId: string) {
     const admin = await this.prisma.user.findUnique({
       where: { id: adminId },
@@ -2560,7 +2575,12 @@ export class ProjectService {
               data: { managerId, workerId: userId },
             });
           } catch (e) {
-            if (e?.code !== 'P2002') throw e;
+            const isDuplicateRecord =
+              typeof e === 'object' &&
+              e !== null &&
+              'code' in e &&
+              e.code === 'P2002';
+            if (!isDuplicateRecord) throw e;
           }
         }
       }

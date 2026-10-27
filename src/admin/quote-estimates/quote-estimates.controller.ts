@@ -28,7 +28,7 @@ import { QuoteEstimatesService } from './quote-estimates.service';
 
 @Controller('admin/quote-estimates')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.admin, UserRole.super_admin, UserRole.manager)
+@Roles(UserRole.admin, UserRole.super_admin)
 export class QuoteEstimatesController {
   constructor(private readonly service: QuoteEstimatesService) {}
 
@@ -59,42 +59,57 @@ export class QuoteEstimatesController {
   @Get()
   findAll(
     @Query() query: QuoteEstimateFilterDto,
+    @CurrentUser('id') userId: string,
     @CurrentUser('role') role: string,
   ) {
-    return this.service.findAll(query, role);
+    return this.service.findAll(query, userId, role);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string, @CurrentUser('role') role: string) {
-    return this.service.findOne(id, role);
+  findOne(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') role: string,
+  ) {
+    return this.service.findOne(id, userId, role);
   }
 
   @Patch(':id')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateQuoteEstimateDto,
+    @CurrentUser('id') userId: string,
     @CurrentUser('role') role: string,
   ) {
-    return this.service.update(id, dto, role);
+    return this.service.update(id, dto, userId, role);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string, @CurrentUser('role') role: string) {
-    return this.service.remove(id, role);
+  remove(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') role: string,
+  ) {
+    return this.service.remove(id, userId, role);
   }
 
   @Post(':id/send')
-  send(@Param('id') id: string, @CurrentUser('role') role: string) {
-    return this.service.send(id, role);
+  send(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') role: string,
+  ) {
+    return this.service.send(id, userId, role);
   }
 
   @Get(':id/pdf')
   async exportPdf(
     @Param('id') id: string,
+    @CurrentUser('id') userId: string,
     @CurrentUser('role') role: string,
     @Res() res: Response,
   ) {
-    const pdf = await this.service.exportPdf(id, role);
+    const pdf = await this.service.exportPdf(id, userId, role);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',
@@ -117,14 +132,19 @@ export class QuoteEstimatesController {
   reject(
     @Param('id') id: string,
     @Body() dto: RejectQuoteEstimateDto,
+    @CurrentUser('id') userId: string,
     @CurrentUser('role') role: string,
   ) {
-    return this.service.reject(id, dto, role);
+    return this.service.reject(id, dto, userId, role);
   }
 
   @Post(':id/cancel')
-  cancel(@Param('id') id: string, @CurrentUser('role') role: string) {
-    return this.service.cancel(id, role);
+  cancel(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') role: string,
+  ) {
+    return this.service.cancel(id, userId, role);
   }
 
   @Post(':id/convert-to-project')

@@ -39,7 +39,7 @@ export async function buildQuotationV2Pdf(input: QuotationV2Dto): Promise<Buffer
     section('Quotation details');
     for (const block of details) {
       if (doc.y > 700) doc.addPage();
-      doc.fontSize(block.heading ? 13 : 10);
+      doc.fontSize(block.heading ? (block.headingLevel === 1 ? 16 : 13) : 10);
       if (block.bullet) doc.font('Helvetica').text('- ', { continued: true });
       const runs = (block.runs || []).filter(run => run.text);
       runs.forEach((run, index) => {
@@ -64,7 +64,7 @@ export async function buildQuotationV2Pdf(input: QuotationV2Dto): Promise<Buffer
     doc.font('Helvetica-Bold').text(service.title || 'Untitled service');
     doc.font('Helvetica');
     if (service.description) doc.text(service.description, { width: 507 });
-    doc.text(`${money(service.rate)} per unit / hour | ${service.count} units | ${money(service.total)}`);
+    doc.text(`${money(service.rate)} per unit | ${service.count} units | ${money(service.total)}`);
     for (const floor of input.floors) {
       const units = floor.units.filter(unit => service.unitIds.includes(unit.id));
       if (units.length) doc.fontSize(9).text(`${floor.label}: ${units.map(unit => unit.label).join(', ')}`, { width: 507 });

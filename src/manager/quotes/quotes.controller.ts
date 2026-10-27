@@ -37,20 +37,25 @@ export class QuotesController {
   ) {}
 
   @Post()
-  createQuote(@Body() dto: CreateQuoteDto, @CurrentUser('id') userId: string) {
-    return this.quotesService.createQuote(dto, userId);
+  createQuote(
+    @Body() dto: CreateQuoteDto,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') role: string,
+  ) {
+    return this.quotesService.createQuote(dto, userId, role);
   }
 
   @Get()
   getQuotes(
     @CurrentUser('id') userId: string,
+    @CurrentUser('role') role: string,
     @Query('projectType') projectType?: string,
     @Query('propertyType') propertyType?: string,
     @Query('unitType') unitType?: string,
     @Query('workCategoryId') workCategoryId?: string,
     @Query('workItemId') workItemId?: string,
   ) {
-    return this.quotesService.getQuotes(userId, {
+    return this.quotesService.getQuotes(userId, role, {
       projectType,
       propertyType,
       unitType,
@@ -161,7 +166,7 @@ export class QuotesController {
   }
 
   @Post('work-items/quick-add')
-  @Roles(UserRole.admin, UserRole.super_admin, UserRole.manager)
+  @Roles(UserRole.admin, UserRole.super_admin)
   quickAddWorkItemAndQuote(
     @Body() dto: QuickAddQuoteWorkItemDto,
     @CurrentUser('id') userId: string,
@@ -170,25 +175,29 @@ export class QuotesController {
   }
 
   @Put('work-items/:id')
-  @Roles(UserRole.admin, UserRole.super_admin, UserRole.manager)
+  @Roles(UserRole.admin, UserRole.super_admin)
   updateWorkItem(@Param('id') id: string, @Body() dto: UpdateQuoteWorkItemDto) {
     return this.quoteLibraryService.updateWorkItem(id, dto);
   }
 
   @Delete('work-items/:id')
-  @Roles(UserRole.admin, UserRole.super_admin, UserRole.manager)
+  @Roles(UserRole.admin, UserRole.super_admin)
   disableWorkItem(@Param('id') id: string) {
     return this.quoteLibraryService.disableWorkItem(id);
   }
 
   @Get(':id')
-  getQuoteById(@Param('id') id: string) {
-    return this.quotesService.getQuoteById(id);
+  getQuoteById(@Param('id') id: string, @CurrentUser('role') role: string) {
+    return this.quotesService.getQuoteById(id, role);
   }
 
   @Put(':id')
-  updateQuote(@Param('id') id: string, @Body() dto: UpdateQuoteDto) {
-    return this.quotesService.updateQuote(id, dto);
+  updateQuote(
+    @Param('id') id: string,
+    @Body() dto: UpdateQuoteDto,
+    @CurrentUser('role') role: string,
+  ) {
+    return this.quotesService.updateQuote(id, dto, role);
   }
 
   @Delete(':id')

@@ -9,6 +9,7 @@ import {
   IsIn,
   IsString,
   IsUUID,
+  IsObject,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -195,6 +196,24 @@ export class CreateQuoteEstimateDto {
   @ValidateNested({ each: true })
   @Type(() => QuoteEstimateTaskDto)
   tasks?: QuoteEstimateTaskDto[];
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  schemaVersion?: number;
+
+  @IsOptional()
+  @IsArray()
+  quotationDetails?: unknown[];
+
+  @IsOptional()
+  @IsObject()
+  buildingPlan?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsObject()
+  pricingConfig?: Record<string, unknown>;
 }
 
 export class UpdateQuoteEstimateDto {
@@ -299,6 +318,24 @@ export class UpdateQuoteEstimateDto {
   @ValidateNested({ each: true })
   @Type(() => QuoteEstimateTaskDto)
   tasks?: QuoteEstimateTaskDto[];
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  schemaVersion?: number;
+
+  @IsOptional()
+  @IsArray()
+  quotationDetails?: unknown[];
+
+  @IsOptional()
+  @IsObject()
+  buildingPlan?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsObject()
+  pricingConfig?: Record<string, unknown>;
 }
 
 export class QuoteEstimateFilterDto {

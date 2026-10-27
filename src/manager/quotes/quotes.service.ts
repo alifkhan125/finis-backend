@@ -1,9 +1,11 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client';
+import { UserRole } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateQuoteDto, UpdateQuoteDto } from './dto/quote.dto';
 import { QuoteLibraryService } from './quote-library.service';
@@ -30,6 +32,21 @@ export class QuotesService {
       .replace(/[\/\-]+/g, '_')
       .replace(/\s+/g, '_')
       .replace(/__+/g, '_');
+  }
+
+  private canSeeFinancials(role: string) {
+    return role === UserRole.admin || role === UserRole.super_admin;
+  }
+
+  private sanitizeQuote<T extends Record<string, any>>(quote: T, role: string) {
+    if (this.canSeeFinancials(role)) return quote;
+    const { unitPrice: _unitPrice, subtotal: _subtotal, ...safe } = quote;
+    const safeRecord = safe as Record<string, any>;
+    if (safeRecord.workItem) {
+      const { unitCost: _unitCost, ...safeWorkItem } = safeRecord.workItem;
+      safeRecord.workItem = safeWorkItem;
+    }
+    return safeRecord;
   }
 
   private async findQuoteByIdOrSlug(identifier: string) {
@@ -63,9 +80,12 @@ export class QuotesService {
     });
   }
 
-  async createQuote(dto: CreateQuoteDto, userId: string) {
+  async createQuote(dto: CreateQuoteDto, userId: string, role: string) {
+    if (!this.canSeeFinancials(role) && dto.unitPrice !== undefined) {
+      throw new ForbiddenException('Managers cannot set quotation pricing');
+    }
     if (dto.workItemId) {
-      return this.quoteLibraryService.createQuoteFromWorkItem(
+      const quote = await this.quoteLibraryService.createQuoteFromWorkItem(
         dto.workItemId,
         userId,
         {
@@ -75,6 +95,7 @@ export class QuotesService {
           isCustom: dto.isCustom,
         },
       );
+      return this.sanitizeQuote(quote as Record<string, any>, role);
     }
 
     if (!dto.title?.trim()) {
@@ -96,7 +117,7 @@ export class QuotesService {
     const unitPrice = dto.unitPrice ?? 0;
     const subtotal = Math.round(quantity * unitPrice * 100) / 100;
 
-    return this.prisma.quote.create({
+    const quote = await this.prisma.quote.create({
       data: {
         createdById: userId,
         workItemId: null,
@@ -135,10 +156,12 @@ export class QuotesService {
         },
       },
     });
+    return this.sanitizeQuote(quote, role);
   }
 
   async getQuotes(
     userId: string,
+    role: string,
     filters?: {
       projectType?: string;
       propertyType?: string;
@@ -215,16 +238,16 @@ export class QuotesService {
 
     return {
       total: quotes.length,
-      quotes,
+      quotes: quotes.map((quote) => this.sanitizeQuote(quote, role)),
       requestedBy: userId,
     };
   }
 
-  async getQuoteById(id: string) {
+  async getQuoteById(id: string, role: string) {
     const quote = await this.findQuoteByIdOrSlug(id);
 
     if (!quote) throw new NotFoundException('Quote not found');
-    return this.prisma.quote.findUnique({
+    const result = await this.prisma.quote.findUnique({
       where: { id: quote.id },
       include: {
         createdBy: {
@@ -248,9 +271,13 @@ export class QuotesService {
         },
       },
     });
+    return result ? this.sanitizeQuote(result, role) : result;
   }
 
-  async updateQuote(id: string, dto: UpdateQuoteDto) {
+  async updateQuote(id: string, dto: UpdateQuoteDto, role: string) {
+    if (!this.canSeeFinancials(role) && dto.unitPrice !== undefined) {
+      throw new ForbiddenException('Managers cannot update quotation pricing');
+    }
     const quote = await this.findQuoteByIdOrSlug(id);
     if (!quote) throw new NotFoundException('Quote not found');
 
@@ -262,7 +289,7 @@ export class QuotesService {
       const unitPrice = dto.unitPrice ?? workItem.unitCost ?? quote.unitPrice;
       const subtotal = Math.round(quantity * unitPrice * 100) / 100;
 
-      return this.prisma.quote.update({
+      const updated = await this.prisma.quote.update({
         where: { id: quote.id },
         data: {
           workItemId: workItem.id,
@@ -301,13 +328,14 @@ export class QuotesService {
           },
         },
       });
+      return this.sanitizeQuote(updated, role);
     }
 
     const quantity = dto.quantity ?? quote.quantity;
     const unitPrice = dto.unitPrice ?? quote.unitPrice;
     const subtotal = Math.round(quantity * unitPrice * 100) / 100;
 
-    return this.prisma.quote.update({
+    const updated = await this.prisma.quote.update({
       where: { id: quote.id },
       data: {
         projectType: dto.projectType ?? quote.projectType,
@@ -344,6 +372,7 @@ export class QuotesService {
         },
       },
     });
+    return this.sanitizeQuote(updated, role);
   }
 
   async deleteQuote(id: string) {

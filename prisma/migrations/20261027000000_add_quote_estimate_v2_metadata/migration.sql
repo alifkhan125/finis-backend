@@ -1,0 +1,5 @@
+ALTER TABLE "quote_estimates"
+ADD COLUMN IF NOT EXISTS "schema_version" INTEGER NOT NULL DEFAULT 1,
+ADD COLUMN IF NOT EXISTS "quotation_details" JSONB,
+ADD COLUMN IF NOT EXISTS "building_plan" JSONB,
+ADD COLUMN IF NOT EXISTS "pricing_config" JSONB;
