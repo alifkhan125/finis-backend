@@ -55,6 +55,22 @@ export class ProjectService {
     return { min, max };
   }
 
+  private normalizeProjectName(name: string) {
+    const normalized = name.trim();
+    if (!normalized) {
+      throw new BadRequestException('Project name is required.');
+    }
+    return normalized;
+  }
+
+  private validateProjectDates(startDate?: Date | null, endDate?: Date | null) {
+    if (startDate && endDate && endDate < startDate) {
+      throw new BadRequestException(
+        'Project end date cannot be earlier than the start date.',
+      );
+    }
+  }
+
   private buildAutoFloorUnits(
     floorNumber: number,
     unitMin?: number | null,
@@ -630,6 +646,11 @@ export class ProjectService {
   ) {
     await this.verifyCompanyAccess(dto.companyId, adminId, userRole);
 
+    const projectName = this.normalizeProjectName(dto.name);
+    const startDate = dto.startDate ? new Date(dto.startDate) : undefined;
+    const endDate = dto.endDate ? new Date(dto.endDate) : undefined;
+    this.validateProjectDates(startDate, endDate);
+
     //  Project limit check — super_admin skip
     if (!this.isSuperAdmin(userRole)) {
       await this.checkProjectLimit(adminId);
@@ -658,10 +679,10 @@ export class ProjectService {
       data: {
         companyId: dto.companyId,
         managerId: adminId,
-        name: dto.name,
+        name: projectName,
         type: dto.type,
-        startDate: dto.startDate ? new Date(dto.startDate) : undefined,
-        endDate: dto.endDate ? new Date(dto.endDate) : undefined,
+        startDate,
+        endDate,
         budget: dto.budget,
         location: dto.location,
         description: dto.description,
@@ -925,8 +946,11 @@ export class ProjectService {
     const existingProject = await this.prisma.project.findUnique({
       where: { id: projectId },
       select: {
+        name: true,
         budget: true,
         spent: true,
+        startDate: true,
+        endDate: true,
         type: true,
         isWholeHouse: true,
         houseSections: true,
@@ -936,6 +960,17 @@ export class ProjectService {
     const budget = dto.budget ?? existingProject?.budget ?? 0;
     const spent = dto.spent ?? existingProject?.spent ?? 0;
     const remaining = dto.remaining ?? budget - spent;
+    const projectName =
+      dto.name !== undefined
+        ? this.normalizeProjectName(dto.name)
+        : existingProject?.name;
+    const startDate = dto.startDate
+      ? new Date(dto.startDate)
+      : existingProject?.startDate;
+    const endDate = dto.endDate
+      ? new Date(dto.endDate)
+      : existingProject?.endDate;
+    this.validateProjectDates(startDate, endDate);
 
     const nextType = dto.type ?? existingProject?.type;
     const nextIsWholeHouse =
@@ -963,7 +998,7 @@ export class ProjectService {
 
     // Prepare update payload
     const updateData: any = {
-      ...(dto.name && { name: dto.name }),
+      ...(dto.name !== undefined && { name: projectName }),
       ...(dto.companyId && { companyId: dto.companyId }),
       ...(dto.type && { type: dto.type }),
       ...(dto.priority !== undefined && { priority: dto.priority }),

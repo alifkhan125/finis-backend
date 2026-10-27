@@ -10,6 +10,7 @@ import {
   IsBoolean,
   ValidateIf,
   IsUUID,
+  IsNotEmpty,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import {
@@ -134,6 +135,7 @@ export class UpdateFloorDto {
 
 export class CreateProjectDto {
   @IsString()
+  @IsNotEmpty()
   name!: string;
 
   @IsString()
