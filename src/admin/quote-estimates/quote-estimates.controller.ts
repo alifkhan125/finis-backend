@@ -1,3 +1,4 @@
+import { EmailQuotationV2Dto, QuotationV2Dto } from './dto/quotation-v2.dto';
 import {
   Body,
   Controller,
@@ -30,6 +31,21 @@ import { QuoteEstimatesService } from './quote-estimates.service';
 @Roles(UserRole.admin, UserRole.super_admin, UserRole.manager)
 export class QuoteEstimatesController {
   constructor(private readonly service: QuoteEstimatesService) {}
+
+  @Post('v2/export-pdf')
+  @Roles(UserRole.admin, UserRole.super_admin)
+  async exportV2(@Body() dto: QuotationV2Dto, @CurrentUser('role') role: string, @Res() res: Response) {
+    const pdf = await this.service.exportV2Pdf(dto, role);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="quotation.pdf"');
+    res.send(pdf.buffer);
+  }
+
+  @Post('v2/email')
+  @Roles(UserRole.admin, UserRole.super_admin)
+  emailV2(@Body() dto: EmailQuotationV2Dto, @CurrentUser('role') role: string) {
+    return this.service.emailV2(dto, role);
+  }
 
   @Post()
   create(

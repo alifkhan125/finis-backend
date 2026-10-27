@@ -1,3 +1,5 @@
+import { buildQuotationV2Pdf } from './quotation-v2-document';
+import { EmailQuotationV2Dto, QuotationV2Dto } from './dto/quotation-v2.dto';
 import {
   BadRequestException,
   ForbiddenException,
@@ -42,6 +44,27 @@ export class QuoteEstimatesService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
   ) {}
+
+  private assertV2Admin(role: string) {
+    if (role !== UserRole.admin && role !== UserRole.super_admin) throw new ForbiddenException('Admin access required');
+  }
+
+  async exportV2Pdf(input: QuotationV2Dto, role: string) {
+    this.assertV2Admin(role);
+    return { buffer: await buildQuotationV2Pdf(input), filename: 'quotation.pdf' };
+  }
+
+  async emailV2(input: EmailQuotationV2Dto, role: string) {
+    this.assertV2Admin(role);
+    const pdf = await this.exportV2Pdf(input, role);
+    await this.createMailTransporter().sendMail({
+      from: this.getMailFromAddress(), to: input.email,
+      subject: `Quotation - ${input.project || 'Project'}`,
+      text: `Hello ${input.client || 'there'},\n\nPlease find the attached quotation for ${input.project || 'your project'}.\n\n${input.company}`,
+      attachments: [{ filename: pdf.filename, content: pdf.buffer, contentType: 'application/pdf' }],
+    });
+    return { message: 'Quotation emailed successfully' };
+  }
 
   private assertAdmin(role: string) {
     if (
