@@ -39,6 +39,7 @@ import {
   UpdateRoomDto,
   AddProjectMemberDto,
   CreateGeofenceDto,
+  UpdateProjectQuotationDetailsDto,
 } from './dto/project.dto';
 
 @Controller('admin/projects')
@@ -177,6 +178,23 @@ export class ProjectController {
     @CurrentUser('role') userRole: string,
   ) {
     return this.projectService.updateProject(id, dto, adminId, userRole);
+  }
+
+  /** PUT /admin/projects/:id/quotation-details — Update or save quotation details & terms */
+  @Put(':id/quotation-details')
+  @Roles(UserRole.admin, UserRole.super_admin)
+  updateProjectQuotationDetails(
+    @Param('id') id: string,
+    @Body() dto: UpdateProjectQuotationDetailsDto,
+    @CurrentUser('id') adminId: string,
+    @CurrentUser('role') userRole: string,
+  ) {
+    return this.projectService.updateProjectQuotationDetails(
+      id,
+      dto.quotationDetails,
+      adminId,
+      userRole,
+    );
   }
 
   /** DELETE /admin/projects/:id */

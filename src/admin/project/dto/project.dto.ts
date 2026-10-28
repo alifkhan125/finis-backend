@@ -396,3 +396,9 @@ export class CreateGeofenceDto {
   @Type(() => Number)
   perimeterFt?: number;
 }
+
+export class UpdateProjectQuotationDetailsDto {
+  @IsNotEmpty()
+  quotationDetails!: any;
+}
+

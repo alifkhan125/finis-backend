@@ -20,6 +20,7 @@ import {
   ProjectType,
   FloorStatus,
   ProjectStatus,
+  Prisma,
 } from '../../generated/prisma/client';
 import { NotificationsService } from '../../notifications/notifications.service';
 
@@ -821,10 +822,34 @@ export class ProjectService {
           where: { status: { in: ['APPROVED', 'PAID'] } },
         },
         _count: { select: { tasks: true, teamMembers: true, floors: true } },
+        convertedQuoteEstimate: {
+          include: {
+            tasks: true,
+          },
+        },
       },
     });
 
     if (!project) throw new NotFoundException('Project not found');
+
+    let quoteEstimate = project.convertedQuoteEstimate;
+    if (!quoteEstimate) {
+      quoteEstimate = await this.prisma.quoteEstimate.findFirst({
+        where: {
+          OR: [
+            { convertedProjectId: project.id },
+            {
+              companyId: project.companyId,
+              projectName: { equals: project.name, mode: 'insensitive' },
+            },
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          tasks: true,
+        },
+      });
+    }
 
     const calculatedSpent = project.reimbursementExpenses.reduce(
       (sum, exp) => sum + Number(exp.totalAmount || 0),
@@ -931,7 +956,99 @@ export class ProjectService {
         primaryContact,
       },
       counts: project._count,
+      quotation: quoteEstimate
+        ? {
+            id: quoteEstimate.id,
+            quoteNumber: quoteEstimate.quoteNumber,
+            status: quoteEstimate.status,
+            projectName: quoteEstimate.projectName,
+            clientName: quoteEstimate.clientName,
+            clientEmail: quoteEstimate.clientEmail,
+            clientPhone: quoteEstimate.clientPhone,
+            projectAddress: quoteEstimate.projectAddress,
+            projectType: quoteEstimate.projectType,
+            propertyType: quoteEstimate.propertyType,
+            unitType: quoteEstimate.unitType,
+            startDate: quoteEstimate.startDate,
+            endDate: quoteEstimate.endDate,
+            floorsCount: quoteEstimate.floorsCount,
+            unitsPerFloor: quoteEstimate.unitsPerFloor,
+            subtotal: userRole === UserRole.manager ? 0 : Number(quoteEstimate.subtotal),
+            discountAmount: userRole === UserRole.manager ? 0 : Number(quoteEstimate.discountAmount),
+            taxAmount: userRole === UserRole.manager ? 0 : Number(quoteEstimate.taxAmount),
+            totalAmount: userRole === UserRole.manager ? 0 : Number(quoteEstimate.totalAmount),
+            quotationDetails: quoteEstimate.quotationDetails,
+            tasks: (quoteEstimate.tasks || []).map((t: any) => ({
+              id: t.id,
+              title: t.title,
+              description: t.description,
+              quantity: Number(t.quantity),
+              unit: t.unit,
+              unitPrice: userRole === UserRole.manager ? 0 : Number(t.unitPrice),
+              totalPrice: userRole === UserRole.manager ? 0 : Number(t.totalPrice),
+            })),
+            createdAt: quoteEstimate.createdAt,
+          }
+        : null,
     };
+  }
+
+  async updateProjectQuotationDetails(
+    projectId: string,
+    quotationDetails: any,
+    userId: string,
+    userRole: string,
+  ) {
+    await this.verifyProjectAccess(projectId, userId, userRole);
+
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      include: { convertedQuoteEstimate: true },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+
+    let quoteEstimate = project.convertedQuoteEstimate;
+    if (!quoteEstimate) {
+      quoteEstimate = await this.prisma.quoteEstimate.findFirst({
+        where: {
+          OR: [
+            { convertedProjectId: project.id },
+            {
+              companyId: project.companyId,
+              projectName: { equals: project.name, mode: 'insensitive' },
+            },
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    if (quoteEstimate) {
+      await this.prisma.quoteEstimate.update({
+        where: { id: quoteEstimate.id },
+        data: {
+          quotationDetails: quotationDetails as Prisma.InputJsonValue,
+          ...(quoteEstimate.convertedProjectId ? {} : { convertedProjectId: project.id }),
+        },
+      });
+    } else {
+      const year = new Date().getFullYear();
+      const quoteNumber = `QE-${year}-${Date.now().toString(36).toUpperCase()}`;
+      await this.prisma.quoteEstimate.create({
+        data: {
+          quoteNumber,
+          companyId: project.companyId,
+          projectName: project.name,
+          clientName: project.name,
+          quotationDetails: quotationDetails as Prisma.InputJsonValue,
+          status: 'converted',
+          convertedProjectId: project.id,
+          createdById: userId,
+        },
+      });
+    }
+
+    return this.getProjectProfile(projectId, userId, userRole);
   }
 
   // ─── UPDATE PROJECT ────────────────────────────────────────────────────────
