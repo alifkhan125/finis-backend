@@ -1,16 +1,17 @@
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsBoolean, IsEmail, IsIn, IsNumber, IsOptional, IsString, MaxLength, Min, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsEmail, IsIn, IsNumber, IsOptional, IsString, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 
 export class QuotationTextRunDto {
   @IsString() @MaxLength(20000) text!: string;
   @IsOptional() @IsBoolean() bold?: boolean;
   @IsOptional() @IsBoolean() italic?: boolean;
   @IsOptional() @IsBoolean() underline?: boolean;
+  @IsOptional() @IsNumber() @Min(8) @Max(48) fontSize?: number;
 }
 export class QuotationBlockDto {
   @IsArray() @ArrayMaxSize(500) @ValidateNested({ each: true }) @Type(() => QuotationTextRunDto) runs!: QuotationTextRunDto[];
   @IsOptional() @IsBoolean() heading?: boolean;
-  @IsOptional() @IsIn([1, 2]) headingLevel?: 1 | 2;
+  @IsOptional() @IsIn([1, 2, 3, 4, 5]) headingLevel?: 1 | 2 | 3 | 4 | 5;
   @IsOptional() @IsBoolean() bullet?: boolean;
 }
 export class QuotationUnitDto {

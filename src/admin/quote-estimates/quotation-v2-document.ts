@@ -37,13 +37,19 @@ export async function buildQuotationV2Pdf(input: QuotationV2Dto): Promise<Buffer
   const details = input.details || [];
   if (details.length) {
     section('Quotation details');
+    const headingSizes: Record<1 | 2 | 3 | 4 | 5, number> = { 1: 18, 2: 16, 3: 14, 4: 12, 5: 11 };
     for (const block of details) {
       if (doc.y > 700) doc.addPage();
-      doc.fontSize(block.heading ? (block.headingLevel === 1 ? 16 : 13) : 10);
+      const headingLevel = ([1, 2, 3, 4, 5].includes(Number(block.headingLevel))
+        ? Number(block.headingLevel)
+        : 2) as 1 | 2 | 3 | 4 | 5;
+      const blockFontSize = block.heading ? headingSizes[headingLevel] : 10;
+      doc.fontSize(blockFontSize);
       if (block.bullet) doc.font('Helvetica').text('- ', { continued: true });
       const runs = (block.runs || []).filter(run => run.text);
       runs.forEach((run, index) => {
         doc.font(run.bold || block.heading ? (run.italic ? 'Helvetica-BoldOblique' : 'Helvetica-Bold') : (run.italic ? 'Helvetica-Oblique' : 'Helvetica'))
+          .fontSize(run.fontSize || blockFontSize)
           .text(run.text, { continued: index < runs.length - 1, underline: Boolean(run.underline), width: 507 });
       });
       if (!runs.length) doc.text(' ');
