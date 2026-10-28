@@ -8,6 +8,7 @@ import {
   Prisma,
   QuoteMeasurementType,
   QuoteWorkItem,
+  UserRole,
 } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -373,7 +374,7 @@ export class QuoteLibraryService {
     unitType?: string;
     includeInactive?: boolean;
     flat?: boolean;
-  }) {
+  }, role?: string) {
     const search = params?.search?.trim();
     const selectorWhere = this.buildSelectorWhere(params);
 
@@ -399,12 +400,17 @@ export class QuoteLibraryService {
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     });
 
+    const safeWorkItems =
+      role === UserRole.manager
+        ? workItems.map(({ unitCost: _unitCost, ...item }) => item)
+        : workItems;
+
     if (params?.flat) {
-      return workItems;
+      return safeWorkItems;
     }
 
     const grouped = Array.from(
-      workItems.reduce((map, item) => {
+      safeWorkItems.reduce((map, item) => {
         const key = item.category.id;
         const current = map.get(key);
 
@@ -418,7 +424,7 @@ export class QuoteLibraryService {
 
         current.data.push(item);
         return map;
-      }, new Map<string, { category: { id: string; name: string; isActive: boolean; sortOrder: number }; data: typeof workItems }>()),
+      }, new Map<string, { category: { id: string; name: string; isActive: boolean; sortOrder: number }; data: typeof safeWorkItems }>()),
     );
 
     return {
@@ -427,7 +433,7 @@ export class QuoteLibraryService {
     };
   }
 
-  async getWorkItemById(id: string) {
+  async getWorkItemById(id: string, role?: string) {
     this.ensureValidUuid(id, 'quote work item ID');
     const item = await this.prisma.quoteWorkItem.findUnique({
       where: { id },
@@ -439,6 +445,10 @@ export class QuoteLibraryService {
     });
 
     if (!item) throw new NotFoundException('Quote work item not found');
+    if (role === UserRole.manager) {
+      const { unitCost: _unitCost, ...safeItem } = item;
+      return safeItem;
+    }
     return item;
   }
 

@@ -93,7 +93,14 @@ export class ReimbursementExpensesService {
     userId: string,
     role: string,
   ): Promise<Prisma.ReimbursementExpenseWhereInput> {
-    if (this.isAdminReviewer(role)) return {};
+    if (role === UserRole.super_admin) return {};
+    if (role === UserRole.admin)
+      return {
+        OR: [
+          { createdById: userId },
+          { project: { company: { ownerId: userId } } },
+        ],
+      };
     if (this.isManager(role))
       return {
         createdById: {
@@ -117,7 +124,15 @@ export class ReimbursementExpensesService {
     role: string,
     projectId?: string,
   ) {
-    if (!projectId || this.isAdminReviewer(role)) return;
+    if (!projectId || role === UserRole.super_admin) return;
+    if (role === UserRole.admin) {
+      const project = await this.prisma.project.findFirst({
+        where: { id: projectId, company: { ownerId: userId } },
+        select: { id: true },
+      });
+      if (!project) throw new ForbiddenException('Project access denied');
+      return;
+    }
     const membership = await this.prisma.projectMember.findFirst({
       where: {
         projectId,
@@ -209,7 +224,21 @@ export class ReimbursementExpensesService {
       },
     });
     if (!expense) throw new NotFoundException('Expense not found');
-    if (this.isAdminReviewer(role)) return expense;
+    if (role === UserRole.super_admin) return expense;
+    if (role === UserRole.admin) {
+      const allowed = await this.prisma.reimbursementExpense.findFirst({
+        where: {
+          id,
+          OR: [
+            { createdById: userId },
+            { project: { company: { ownerId: userId } } },
+          ],
+        },
+        select: { id: true },
+      });
+      if (!allowed) throw new ForbiddenException('Expense access denied');
+      return expense;
+    }
     if (this.isManager(role)) {
       if (expense.createdById === userId) return expense;
       const workerIds = await this.getManagedWorkerIds(userId);
@@ -282,6 +311,10 @@ export class ReimbursementExpensesService {
     this.assertExpenseAccess(role);
     if (this.isAdminReviewer(role)) {
       return this.prisma.project.findMany({
+        where:
+          role === UserRole.super_admin
+            ? {}
+            : { company: { ownerId: userId } },
         select: { id: true, name: true },
         orderBy: { name: 'asc' },
       });
@@ -336,19 +369,22 @@ export class ReimbursementExpensesService {
 
   async getOptions(adminId: string, role: string) {
     this.assertExpenseAccess(role);
+    const scopeWhere = await this.buildScopedWhere(adminId, role);
     const [currencies, categories, paymentMethods] = await Promise.all([
       this.prisma.reimbursementExpense.findMany({
+        where: scopeWhere,
         distinct: ['currency'],
         select: { currency: true },
         orderBy: { currency: 'asc' },
       }),
       this.prisma.reimbursementExpense.findMany({
+        where: scopeWhere,
         distinct: ['category'],
         select: { category: true },
         orderBy: { category: 'asc' },
       }),
       this.prisma.reimbursementExpense.findMany({
-        where: { paymentMethod: { not: null } },
+        where: { ...scopeWhere, paymentMethod: { not: null } },
         distinct: ['paymentMethod'],
         select: { paymentMethod: true },
         orderBy: { paymentMethod: 'asc' },

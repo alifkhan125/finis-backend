@@ -169,7 +169,7 @@ export class ProjectController {
 
   /** PUT /admin/projects/:id — Edit Project screen */
   @Put(':id')
-  @Roles(UserRole.admin, UserRole.manager)
+  @Roles(UserRole.admin, UserRole.super_admin)
   updateProject(
     @Param('id') id: string,
     @Body() dto: UpdateProjectDto,
@@ -181,7 +181,7 @@ export class ProjectController {
 
   /** DELETE /admin/projects/:id */
   @Delete(':id')
-  @Roles(UserRole.admin, UserRole.manager)
+  @Roles(UserRole.admin, UserRole.super_admin)
   deleteProject(
     @Param('id') id: string,
     @CurrentUser('id') adminId: string,

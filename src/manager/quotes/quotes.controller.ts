@@ -135,6 +135,7 @@ export class QuotesController {
 
   @Get('work-items')
   getWorkItems(
+    @CurrentUser('role') role: string,
     @Query('search') search?: string,
     @Query('categoryId') categoryId?: string,
     @Query('projectType') projectType?: string,
@@ -151,12 +152,15 @@ export class QuotesController {
       unitType,
       includeInactive: includeInactive === 'true',
       flat: flat === 'true',
-    });
+    }, role);
   }
 
   @Get('work-items/:id')
-  getWorkItemById(@Param('id') id: string) {
-    return this.quoteLibraryService.getWorkItemById(id);
+  getWorkItemById(
+    @Param('id') id: string,
+    @CurrentUser('role') role: string,
+  ) {
+    return this.quoteLibraryService.getWorkItemById(id, role);
   }
 
   @Post('work-items')
@@ -187,21 +191,30 @@ export class QuotesController {
   }
 
   @Get(':id')
-  getQuoteById(@Param('id') id: string, @CurrentUser('role') role: string) {
-    return this.quotesService.getQuoteById(id, role);
+  getQuoteById(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') role: string,
+  ) {
+    return this.quotesService.getQuoteById(id, userId, role);
   }
 
   @Put(':id')
   updateQuote(
     @Param('id') id: string,
     @Body() dto: UpdateQuoteDto,
+    @CurrentUser('id') userId: string,
     @CurrentUser('role') role: string,
   ) {
-    return this.quotesService.updateQuote(id, dto, role);
+    return this.quotesService.updateQuote(id, dto, userId, role);
   }
 
   @Delete(':id')
-  deleteQuote(@Param('id') id: string) {
-    return this.quotesService.deleteQuote(id);
+  deleteQuote(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') role: string,
+  ) {
+    return this.quotesService.deleteQuote(id, userId, role);
   }
 }

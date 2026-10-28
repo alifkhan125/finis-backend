@@ -77,6 +77,16 @@ export class QuoteEstimatesService {
     }
   }
 
+  private assertQuoteAuthor(role: string) {
+    if (
+      role !== UserRole.admin &&
+      role !== UserRole.super_admin &&
+      role !== UserRole.manager
+    ) {
+      throw new ForbiddenException('Quote access required');
+    }
+  }
+
   private toDecimal(value = 0) {
     return new Prisma.Decimal(Number(value || 0).toFixed(2));
   }
@@ -85,7 +95,7 @@ export class QuoteEstimatesService {
     return value instanceof Prisma.Decimal ? Number(value) : value;
   }
 
-  private serialize(quote: any) {
+  private serialize(quote: any, role: string = UserRole.admin) {
     if (!quote) return quote;
     const tasks = (quote.tasks ?? []).map((task: any) => ({
       ...task,
@@ -94,13 +104,27 @@ export class QuoteEstimatesService {
       unitPrice: this.toNumber(task.unitPrice),
       totalPrice: this.toNumber(task.totalPrice),
     }));
-    return {
+    const serialized = {
       ...quote,
       subtotal: this.toNumber(quote.subtotal),
       discountAmount: this.toNumber(quote.discountAmount),
       taxAmount: this.toNumber(quote.taxAmount),
       totalAmount: this.toNumber(quote.totalAmount),
       tasks,
+    };
+    if (role !== UserRole.manager) return serialized;
+
+    const {
+      subtotal: _subtotal,
+      discountAmount: _discountAmount,
+      taxAmount: _taxAmount,
+      totalAmount: _totalAmount,
+      pricingConfig: _pricingConfig,
+      ...safeQuote
+    } = serialized;
+    return {
+      ...safeQuote,
+      tasks: tasks.map(({ unitPrice: _unitPrice, totalPrice: _totalPrice, ...task }) => task),
     };
   }
 
@@ -217,20 +241,16 @@ export class QuoteEstimatesService {
   }
 
   private async assertCompany(companyId: string, userId: string, role: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { tenantId: true },
-    });
     const company = await this.prisma.company.findFirst({
       where: {
         id: companyId,
         isActive: true,
-        ...(role === UserRole.super_admin
-          ? {}
+        ...(role === UserRole.super_admin ? {} : role === UserRole.admin
+          ? { ownerId: userId }
           : {
               OR: [
-                { ownerId: userId },
-                ...(user?.tenantId ? [{ tenantId: user.tenantId }] : []),
+                { members: { some: { userId } } },
+                { projects: { some: { teamMembers: { some: { userId } } } } },
               ],
             }),
       },
@@ -292,7 +312,11 @@ export class QuoteEstimatesService {
     const quote = await this.prisma.quoteEstimate.findFirst({
       where: {
         id,
-        ...(role === UserRole.super_admin ? {} : { createdById: userId }),
+        ...(role === UserRole.super_admin
+          ? {}
+          : role === UserRole.admin
+            ? { company: { ownerId: userId } }
+            : { createdById: userId }),
       },
       include: includeQuoteEstimate,
     });
@@ -305,13 +329,16 @@ export class QuoteEstimatesService {
     userId: string,
     role: string,
   ) {
-    this.assertAdmin(role);
+    this.assertQuoteAuthor(role);
     await this.assertCompany(dto.companyId, userId, role);
     this.assertDateRange(dto.startDate, dto.endDate);
+    const managerTasks = role === UserRole.manager
+      ? (dto.tasks ?? []).map((task) => ({ ...task, unitPrice: 0 }))
+      : dto.tasks;
     const totals = this.calculateTotals(
-      dto.tasks,
-      dto.discountAmount ?? 0,
-      dto.taxAmount ?? 0,
+      managerTasks,
+      role === UserRole.manager ? 0 : dto.discountAmount ?? 0,
+      role === UserRole.manager ? 0 : dto.taxAmount ?? 0,
     );
     const planning = this.resolvePlanningRange(dto);
 
@@ -347,7 +374,7 @@ export class QuoteEstimatesService {
         ...(dto.buildingPlan !== undefined
           ? { buildingPlan: dto.buildingPlan as Prisma.InputJsonValue }
           : {}),
-        ...(dto.pricingConfig !== undefined
+        ...(role !== UserRole.manager && dto.pricingConfig !== undefined
           ? { pricingConfig: dto.pricingConfig as Prisma.InputJsonValue }
           : {}),
         createdById: userId,
@@ -360,16 +387,20 @@ export class QuoteEstimatesService {
 
     return {
       message: 'Quote estimate created successfully',
-      quote: this.serialize(quote),
+      quote: this.serialize(quote, role),
     };
   }
 
   async findAll(query: QuoteEstimateFilterDto, userId: string, role: string) {
-    this.assertAdmin(role);
+    this.assertQuoteAuthor(role);
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 20, 100);
     const where: Prisma.QuoteEstimateWhereInput = {
-      ...(role === UserRole.super_admin ? {} : { createdById: userId }),
+      ...(role === UserRole.super_admin
+        ? {}
+        : role === UserRole.admin
+          ? { company: { ownerId: userId } }
+          : { createdById: userId }),
       ...(query.companyId ? { companyId: query.companyId } : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(query.search
@@ -395,22 +426,30 @@ export class QuoteEstimatesService {
     ]);
 
     return {
-      data: items.map((item) => this.serialize(item)),
+      data: items.map((item) => this.serialize(item, role)),
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
   }
 
   async findOne(id: string, userId: string, role: string) {
-    this.assertAdmin(role);
-    return this.serialize(await this.getQuoteOrThrow(id, userId, role));
+    this.assertQuoteAuthor(role);
+    return this.serialize(await this.getQuoteOrThrow(id, userId, role), role);
   }
 
   async update(id: string, dto: UpdateQuoteEstimateDto, userId: string, role: string) {
-    this.assertAdmin(role);
+    this.assertQuoteAuthor(role);
     const existing = await this.getQuoteOrThrow(id, userId, role);
     if (dto.companyId) await this.assertCompany(dto.companyId, userId, role);
     if (existing.status === QuoteEstimateStatus.converted) {
       throw new BadRequestException('Converted quote estimates cannot be edited');
+    }
+    if (
+      role === UserRole.manager &&
+      (existing.status !== QuoteEstimateStatus.draft || Number(existing.totalAmount) > 0)
+    ) {
+      throw new ForbiddenException(
+        'This quotation is under admin review and can no longer be edited',
+      );
     }
     this.assertDateRange(dto.startDate ?? existing.startDate, dto.endDate ?? existing.endDate);
 
@@ -444,10 +483,13 @@ export class QuoteEstimatesService {
         unitPrice: Number(task.unitPrice),
         sortOrder: task.sortOrder,
       }));
+    const managerTasks = role === UserRole.manager
+      ? nextTasks.map((task) => ({ ...task, unitPrice: 0 }))
+      : nextTasks;
     const totals = this.calculateTotals(
-      nextTasks,
-      dto.discountAmount ?? Number(existing.discountAmount),
-      dto.taxAmount ?? Number(existing.taxAmount),
+      managerTasks,
+      role === UserRole.manager ? 0 : dto.discountAmount ?? Number(existing.discountAmount),
+      role === UserRole.manager ? 0 : dto.taxAmount ?? Number(existing.taxAmount),
     );
     const planning = this.resolvePlanningRange({
       floorStart: dto.floorStart ?? existing.floorStart,
@@ -510,7 +552,7 @@ export class QuoteEstimatesService {
               totalUnits,
             }
           : {}),
-        ...(dto.status !== undefined ? { status: dto.status } : {}),
+        ...(role !== UserRole.manager && dto.status !== undefined ? { status: dto.status } : {}),
         subtotal: totals.subtotal,
         discountAmount: totals.discountAmount,
         taxAmount: totals.taxAmount,
@@ -522,7 +564,7 @@ export class QuoteEstimatesService {
         ...(dto.buildingPlan !== undefined
           ? { buildingPlan: dto.buildingPlan as Prisma.InputJsonValue }
           : {}),
-        ...(dto.pricingConfig !== undefined
+        ...(role !== UserRole.manager && dto.pricingConfig !== undefined
           ? { pricingConfig: dto.pricingConfig as Prisma.InputJsonValue }
           : {}),
         ...(dto.tasks !== undefined
@@ -539,13 +581,18 @@ export class QuoteEstimatesService {
 
     return {
       message: 'Quote estimate updated successfully',
-      quote: this.serialize(quote),
+      quote: this.serialize(quote, role),
     };
   }
 
   async remove(id: string, userId: string, role: string) {
-    this.assertAdmin(role);
+    this.assertQuoteAuthor(role);
     const existing = await this.getQuoteOrThrow(id, userId, role);
+    if (role === UserRole.manager && existing.status !== QuoteEstimateStatus.draft) {
+      throw new ForbiddenException(
+        'Only draft quotation requests can be deleted by a manager',
+      );
+    }
     if (existing.status === QuoteEstimateStatus.converted) {
       throw new BadRequestException('Converted quote estimates cannot be deleted');
     }
@@ -597,7 +644,7 @@ export class QuoteEstimatesService {
   async exportPdf(id: string, userId: string, role: string) {
     this.assertAdmin(role);
     const quote = await this.getQuoteOrThrow(id, userId, role);
-    const doc = new PDFDocument({ size: 'A4', margin: 44 });
+    const doc = new PDFDocument({ size: 'A4', margin: 44, bufferPages: true });
     const chunks: Buffer[] = [];
 
     const buffer = await new Promise<Buffer>((resolve, reject) => {
@@ -607,100 +654,110 @@ export class QuoteEstimatesService {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      doc
-        .fontSize(24)
-        .font('Helvetica-Bold')
-        .fillColor('#1D4F6D')
-        .text('Finis Quote Estimate');
-      doc.moveDown(0.4);
-      doc
-        .fontSize(10)
-        .font('Helvetica')
-        .fillColor('#64748b')
-        .text(`Quote Number: ${quote.quoteNumber}`)
-        .text(`Created: ${quote.createdAt.toLocaleDateString()}`);
-      doc.moveDown();
-
-      doc
-        .fontSize(15)
-        .font('Helvetica-Bold')
-        .fillColor('#111827')
-        .text(quote.projectName);
-      doc
-        .fontSize(10)
-        .font('Helvetica')
-        .fillColor('#374151')
-        .text(`Company: ${quote.company.name}`)
-        .text(`Client: ${quote.clientName}`)
-        .text(`Email: ${quote.clientEmail ?? 'N/A'}`)
-        .text(`Phone: ${quote.clientPhone ?? 'N/A'}`)
-        .text(`Address: ${quote.projectAddress ?? 'N/A'}`);
-      doc.moveDown();
-
-      doc
-        .fontSize(12)
-        .font('Helvetica-Bold')
-        .fillColor('#111827')
-        .text('Scope');
-      doc
-        .fontSize(10)
-        .font('Helvetica')
-        .fillColor('#374151')
-        .text(`Project Type: ${quote.projectType ?? 'N/A'}`)
-        .text(`Property Type: ${quote.propertyType ?? 'N/A'}`)
-        .text(`Unit Type: ${quote.unitType ?? 'N/A'}`)
-        .text(
-          `Planning: ${quote.floorsCount ?? 0} floors, ${quote.unitsPerFloor ?? 0} units/floor`,
-        );
-      doc.moveDown();
-
-      doc
-        .fontSize(12)
-        .font('Helvetica-Bold')
-        .fillColor('#111827')
-        .text('Quote Lines');
-      doc.moveDown(0.3);
-
-      quote.tasks.forEach((task, index) => {
-        doc
-          .fontSize(10)
-          .font('Helvetica-Bold')
-          .fillColor('#111827')
-          .text(`${index + 1}. ${task.title}`);
-        if (task.description) {
-          doc.font('Helvetica').fillColor('#64748b').text(task.description);
+      const pageWidth = 507;
+      const ensureSpace = (height: number) => {
+        if (doc.y + height > 755) doc.addPage();
+      };
+      const section = (title: string, subtitle?: string) => {
+        ensureSpace(subtitle ? 58 : 42);
+        doc.moveDown(0.8);
+        doc.font('Helvetica-Bold').fontSize(13).fillColor('#1D4F6D').text(title);
+        if (subtitle) {
+          doc.font('Helvetica').fontSize(9).fillColor('#64748B').text(subtitle);
         }
-        doc
-          .font('Helvetica')
-          .fillColor('#374151')
-          .text(
-            `${Number(task.quantity)} ${task.unit ?? 'unit'} x ${this.money(task.unitPrice)} = ${this.money(task.totalPrice)}`,
-          );
         doc.moveDown(0.45);
+      };
+      const infoRow = (label: string, value: unknown) => {
+        doc.font('Helvetica-Bold').fontSize(9).fillColor('#475569').text(label, {
+          continued: true,
+        });
+        doc.font('Helvetica').fillColor('#111827').text(`  ${String(value || 'N/A')}`);
+      };
+
+      doc.roundedRect(44, 44, pageWidth, 104, 10).fill('#1D4F6D');
+      doc.font('Helvetica-Bold').fontSize(25).fillColor('#FFFFFF').text('QUOTATION & SERVICE AGREEMENT', 62, 62, { width: 470 });
+      doc.font('Helvetica').fontSize(10).fillColor('#DCEAF2').text(quote.company.name, 62, 98);
+      doc.text(`Document No: ${quote.quoteNumber}`, 350, 98, { width: 180, align: 'right' });
+      doc.text(`Issued: ${quote.createdAt.toLocaleDateString('en-CA')}`, 350, 116, { width: 180, align: 'right' });
+      doc.y = 166;
+
+      doc.font('Helvetica-Bold').fontSize(17).fillColor('#111827').text(quote.projectName);
+      doc.font('Helvetica').fontSize(9).fillColor('#64748B').text('This document records the proposed scope, price, schedule and acceptance terms for the services described below.');
+
+      section('1. PARTIES & PROJECT');
+      infoRow('Service Provider', quote.company.name);
+      infoRow('Customer / Service Receiver', quote.clientName);
+      infoRow('Customer Email', quote.clientEmail);
+      infoRow('Customer Phone', quote.clientPhone);
+      infoRow('Service Address', quote.projectAddress);
+      infoRow('Project Classification', [quote.projectType, quote.propertyType, quote.unitType].filter(Boolean).join(' / '));
+      infoRow('Proposed Schedule', `${quote.startDate ? quote.startDate.toLocaleDateString('en-CA') : 'N/A'} to ${quote.endDate ? quote.endDate.toLocaleDateString('en-CA') : 'N/A'}`);
+
+      const quotationDetails = Array.isArray(quote.quotationDetails)
+        ? (quote.quotationDetails as any[])
+        : [];
+      if (quotationDetails.length) {
+        section('2. QUOTATION DETAILS & TERMS');
+        for (const block of quotationDetails) {
+          ensureSpace(34);
+          const text = Array.isArray(block?.runs)
+            ? block.runs.map((run: any) => String(run?.text ?? '')).join('')
+            : '';
+          if (!text.trim()) continue;
+          doc
+            .font(block.heading ? 'Helvetica-Bold' : 'Helvetica')
+            .fontSize(block.heading ? 12 : 9.5)
+            .fillColor('#334155')
+            .text(`${block.bullet ? '• ' : ''}${text}`, { width: pageWidth, lineGap: 2 });
+          doc.moveDown(0.3);
+        }
+      }
+
+      section(quotationDetails.length ? '3. SCOPE OF SERVICES' : '2. SCOPE OF SERVICES', 'Only the listed services and quantities are included in this quotation.');
+      quote.tasks.forEach((task, index) => {
+        ensureSpace(task.description ? 70 : 50);
+        const top = doc.y;
+        doc.roundedRect(44, top, pageWidth, task.description ? 60 : 44, 6).fillAndStroke('#F8FAFC', '#E2E8F0');
+        doc.font('Helvetica-Bold').fontSize(10).fillColor('#111827').text(`${index + 1}. ${task.title}`, 56, top + 10, { width: 300 });
+        doc.font('Helvetica-Bold').fontSize(10).fillColor('#1D4F6D').text(this.money(task.totalPrice), 410, top + 10, { width: 125, align: 'right' });
+        doc.font('Helvetica').fontSize(8.5).fillColor('#64748B').text(`${Number(task.quantity)} ${task.unit ?? 'unit'} × ${this.money(task.unitPrice)}`, 56, top + 28, { width: 250 });
+        if (task.description) doc.text(task.description, 56, top + 43, { width: 465, ellipsis: true });
+        doc.y = top + (task.description ? 66 : 50);
       });
 
-      doc.moveDown(0.5);
-      doc
-        .fontSize(11)
-        .font('Helvetica')
-        .fillColor('#374151')
+      section(quotationDetails.length ? '4. CONTRACT VALUE' : '3. CONTRACT VALUE');
+      doc.font('Helvetica').fontSize(10).fillColor('#334155')
         .text(`Subtotal: ${this.money(quote.subtotal)}`, { align: 'right' })
-        .text(`Discount: ${this.money(quote.discountAmount)}`, {
-          align: 'right',
-        })
+        .text(`Discount: ${this.money(quote.discountAmount)}`, { align: 'right' })
         .text(`Tax: ${this.money(quote.taxAmount)}`, { align: 'right' });
-      doc
-        .fontSize(16)
-        .font('Helvetica-Bold')
-        .fillColor('#1D4F6D')
-        .text(`Total: ${this.money(quote.totalAmount)}`, { align: 'right' });
+      doc.moveDown(0.35);
+      doc.roundedRect(351, doc.y, 200, 42, 7).fill('#1D4F6D');
+      doc.font('Helvetica-Bold').fontSize(15).fillColor('#FFFFFF').text(`TOTAL  ${this.money(quote.totalAmount)}`, 365, doc.y + 13, { width: 172, align: 'right' });
+      doc.y += 54;
 
-      doc.moveDown(2);
-      doc
-        .fontSize(9)
-        .font('Helvetica')
-        .fillColor('#64748b')
-        .text('This estimate is prepared by Finis and is subject to review and acceptance.');
+      section(quotationDetails.length ? '5. ACCEPTANCE & SIGNATURES' : '4. ACCEPTANCE & SIGNATURES', 'By signing below, both parties acknowledge and accept this quotation and its stated scope and terms.');
+      ensureSpace(145);
+      const signatureY = doc.y + 38;
+      doc.moveTo(44, signatureY).lineTo(276, signatureY).strokeColor('#94A3B8').stroke();
+      doc.moveTo(319, signatureY).lineTo(551, signatureY).strokeColor('#94A3B8').stroke();
+      doc.font('Helvetica-Bold').fontSize(9).fillColor('#111827').text('For the Company / Service Provider', 44, signatureY + 8, { width: 232 });
+      doc.text('Customer / Service Receiver', 319, signatureY + 8, { width: 232 });
+      doc.font('Helvetica').fontSize(8).fillColor('#64748B').text('Authorized name & signature', 44, signatureY + 24, { width: 232 });
+      doc.text('Name & signature', 319, signatureY + 24, { width: 232 });
+      doc.moveTo(44, signatureY + 66).lineTo(276, signatureY + 66).strokeColor('#CBD5E1').stroke();
+      doc.moveTo(319, signatureY + 66).lineTo(551, signatureY + 66).strokeColor('#CBD5E1').stroke();
+      doc.fontSize(8).text('Date', 44, signatureY + 72).text('Date', 319, signatureY + 72);
+
+      const range = doc.bufferedPageRange();
+      for (let page = range.start; page < range.start + range.count; page += 1) {
+        doc.switchToPage(page);
+        doc.font('Helvetica').fontSize(7.5).fillColor('#94A3B8').text(
+          `${quote.quoteNumber}  •  Confidential contract document  •  Page ${page + 1} of ${range.count}`,
+          44,
+          800,
+          { width: pageWidth, align: 'center', lineBreak: false },
+        );
+      }
 
       doc.end();
     });

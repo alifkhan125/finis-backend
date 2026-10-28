@@ -110,6 +110,7 @@ export class CompanyController {
 
   /** PUT /admin/companies/:id — update company */
   @Put(':id')
+  @Roles(UserRole.admin, UserRole.super_admin)
   @UseInterceptors(
     FileInterceptor('logo', {
       storage: memoryStorage(),
@@ -137,6 +138,7 @@ export class CompanyController {
 
   /** DELETE /admin/companies/:id — deactivate company */
   @Delete(':id')
+  @Roles(UserRole.admin, UserRole.super_admin)
   deleteCompany(
     @Param('id') companyId: string,
     @CurrentUser('id') adminId: string,
@@ -147,6 +149,7 @@ export class CompanyController {
 
   /** DELETE /admin/companies/:id/hard — permanently delete company */
   @Delete(':id/hard')
+  @Roles(UserRole.admin, UserRole.super_admin)
   hardDeleteCompany(
     @Param('id') companyId: string,
     @CurrentUser('id') adminId: string,
@@ -214,6 +217,7 @@ export class CompanyController {
 
   /** POST /admin/companies/:id/documents — upload document */
   @Post(':id/documents')
+  @Roles(UserRole.admin, UserRole.super_admin)
   @UseInterceptors(FileInterceptor('file', { storage: memoryStorage() }))
   async uploadDocument(
     @Param('id') companyId: string,
@@ -235,6 +239,7 @@ export class CompanyController {
 
   /** DELETE /admin/companies/:id/documents/:docId */
   @Delete(':id/documents/:docId')
+  @Roles(UserRole.admin, UserRole.super_admin)
   deleteDocument(
     @Param('id') companyId: string,
     @Param('docId') docId: string,
@@ -250,6 +255,7 @@ export class CompanyController {
   }
   /** POST /admin/companies/:id/share */
   @Post(':id/share')
+  @Roles(UserRole.admin, UserRole.super_admin)
   generateShareLink(
     @Param('id') companyId: string,
     @CurrentUser('id') adminId: string,

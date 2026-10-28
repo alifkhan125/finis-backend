@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -43,10 +44,21 @@ export class TimeAdjustmentsService {
     }
 
     if (user && user.role !== 'super_admin') {
-      if (user.role === 'worker') {
-        whereClause.workerId = user.id;
-      } else if (user.tenantId) {
-        whereClause.worker = { tenantId: user.tenantId };
+      if (user.role === 'worker') whereClause.workerId = user.id;
+      else if (user.role === 'admin') {
+        whereClause.worker = {
+          OR: [
+            { companyMembers: { some: { company: { ownerId: user.id } } } },
+            { projectMemberships: { some: { project: { company: { ownerId: user.id } } } } },
+          ],
+        };
+      } else if (user.role === 'manager') {
+        whereClause.worker = {
+          OR: [
+            { myManager: { is: { managerId: user.id } } },
+            { projectMemberships: { some: { managerId: user.id } } },
+          ],
+        };
       }
     }
 
@@ -73,12 +85,35 @@ export class TimeAdjustmentsService {
   async updateRequestStatus(
     id: string,
     status: string | undefined,
-    reviewedBy: string,
+    reviewer: { id: string; role: string },
   ) {
     const request = await this.prisma.timeAdjustmentRequest.findUnique({
       where: { id },
     });
     if (!request) throw new NotFoundException('Request not found');
+
+    if (reviewer.role !== 'super_admin') {
+      const allowed = await this.prisma.user.findFirst({
+        where: {
+          id: request.workerId,
+          ...(reviewer.role === 'admin'
+            ? {
+                OR: [
+                  { companyMembers: { some: { company: { ownerId: reviewer.id } } } },
+                  { projectMemberships: { some: { project: { company: { ownerId: reviewer.id } } } } },
+                ],
+              }
+            : {
+                OR: [
+                  { myManager: { is: { managerId: reviewer.id } } },
+                  { projectMemberships: { some: { managerId: reviewer.id } } },
+                ],
+              }),
+        },
+        select: { id: true },
+      });
+      if (!allowed) throw new ForbiddenException('Request access denied');
+    }
 
     if (request.status !== 'pending') return request;
 
@@ -93,7 +128,7 @@ export class TimeAdjustmentsService {
       where: { id },
       data: {
         status: normalizedStatus as TimeAdjustmentStatus,
-        reviewedBy,
+        reviewedBy: reviewer.id,
         reviewedAt: new Date(),
       },
     });

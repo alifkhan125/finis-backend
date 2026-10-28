@@ -11,9 +11,13 @@ import {
 import { TimeAdjustmentsService } from './time-adjustments.service';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { UserRole } from '../generated/prisma/client';
 
 @Controller('time-adjustments')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.admin, UserRole.manager, UserRole.worker, UserRole.super_admin)
 export class TimeAdjustmentsController {
   constructor(private readonly service: TimeAdjustmentsService) {}
 
@@ -52,6 +56,7 @@ export class TimeAdjustmentsController {
   }
 
   @Patch(':id/status')
+  @Roles(UserRole.admin, UserRole.manager, UserRole.super_admin)
   async updateStatus(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -61,22 +66,25 @@ export class TimeAdjustmentsController {
     return this.service.updateRequestStatus(
       id,
       body?.status ?? queryStatus,
-      user.id,
+      user,
     );
   }
 
   @Patch(':id/approve')
+  @Roles(UserRole.admin, UserRole.manager, UserRole.super_admin)
   async approve(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.service.updateRequestStatus(id, 'approved', user.id);
+    return this.service.updateRequestStatus(id, 'approved', user);
   }
 
   @Patch(':id/deny')
+  @Roles(UserRole.admin, UserRole.manager, UserRole.super_admin)
   async deny(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.service.updateRequestStatus(id, 'denied', user.id);
+    return this.service.updateRequestStatus(id, 'denied', user);
   }
 
   @Patch(':id/reject')
+  @Roles(UserRole.admin, UserRole.manager, UserRole.super_admin)
   async reject(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.service.updateRequestStatus(id, 'denied', user.id);
+    return this.service.updateRequestStatus(id, 'denied', user);
   }
 }

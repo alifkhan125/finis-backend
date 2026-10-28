@@ -11,6 +11,9 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { NotificationsService } from './notifications.service';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { UserRole } from '../generated/prisma/client';
 
 @Controller('notifications')
 @UseGuards(JwtAuthGuard)
@@ -18,6 +21,8 @@ export class NotificationsController {
   constructor(private readonly service: NotificationsService) {}
 
   @Post('send')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.super_admin)
   send(
     @Body()
     dto: {
@@ -72,7 +77,7 @@ export class NotificationsController {
   }
 
   @Delete('device-token/:token')
-  removeDeviceToken(@Param('token') token: string) {
-    return this.service.removeDeviceToken(token);
+  removeDeviceToken(@Param('token') token: string, @Request() req: any) {
+    return this.service.removeDeviceToken(token, req.user.id);
   }
 }

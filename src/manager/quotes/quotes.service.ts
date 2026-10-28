@@ -80,6 +80,16 @@ export class QuotesService {
     });
   }
 
+  private assertQuoteOwner(
+    quote: { createdById: string },
+    userId: string,
+    role: string,
+  ) {
+    if (role !== UserRole.super_admin && quote.createdById !== userId) {
+      throw new ForbiddenException('Quote access denied');
+    }
+  }
+
   async createQuote(dto: CreateQuoteDto, userId: string, role: string) {
     if (!this.canSeeFinancials(role) && dto.unitPrice !== undefined) {
       throw new ForbiddenException('Managers cannot set quotation pricing');
@@ -90,7 +100,7 @@ export class QuotesService {
         userId,
         {
           quantity: dto.quantity,
-          unitCost: dto.unitPrice,
+          unitCost: this.canSeeFinancials(role) ? dto.unitPrice : 0,
           notes: dto.notes,
           isCustom: dto.isCustom,
         },
@@ -206,6 +216,7 @@ export class QuotesService {
 
     const quotes = await this.prisma.quote.findMany({
       where: {
+        ...(role === UserRole.super_admin ? {} : { createdById: userId }),
         ...(andConditions.length ? { AND: andConditions } : {}),
         ...(filters?.workCategoryId && {
           workCategoryId: filters.workCategoryId,
@@ -243,10 +254,11 @@ export class QuotesService {
     };
   }
 
-  async getQuoteById(id: string, role: string) {
+  async getQuoteById(id: string, userId: string, role: string) {
     const quote = await this.findQuoteByIdOrSlug(id);
 
     if (!quote) throw new NotFoundException('Quote not found');
+    this.assertQuoteOwner(quote, userId, role);
     const result = await this.prisma.quote.findUnique({
       where: { id: quote.id },
       include: {
@@ -274,12 +286,13 @@ export class QuotesService {
     return result ? this.sanitizeQuote(result, role) : result;
   }
 
-  async updateQuote(id: string, dto: UpdateQuoteDto, role: string) {
+  async updateQuote(id: string, dto: UpdateQuoteDto, userId: string, role: string) {
     if (!this.canSeeFinancials(role) && dto.unitPrice !== undefined) {
       throw new ForbiddenException('Managers cannot update quotation pricing');
     }
     const quote = await this.findQuoteByIdOrSlug(id);
     if (!quote) throw new NotFoundException('Quote not found');
+    this.assertQuoteOwner(quote, userId, role);
 
     if (dto.workItemId) {
       const workItem = await this.quoteLibraryService.resolveWorkItemById(
@@ -375,9 +388,10 @@ export class QuotesService {
     return this.sanitizeQuote(updated, role);
   }
 
-  async deleteQuote(id: string) {
+  async deleteQuote(id: string, userId: string, role: string) {
     const quote = await this.findQuoteByIdOrSlug(id);
     if (!quote) throw new NotFoundException('Quote not found');
+    this.assertQuoteOwner(quote, userId, role);
     await this.prisma.quote.delete({ where: { id: quote.id } });
     return { success: true, message: 'Quote deleted successfully' };
   }

@@ -107,14 +107,27 @@ export class MailboxService {
     return undefined;
   }
 
-  private canAccessAllMailbox(user: MailboxActor) {
-    return user.role === 'admin' || user.role === 'super_admin';
-  }
-
   private conversationAccessWhere(user: MailboxActor, conversationId?: string) {
+    const actorScope =
+      user.role === 'super_admin'
+        ? {}
+        : user.role === 'admin'
+          ? {
+              OR: [
+                { managerId: user.id },
+                {
+                  manager: {
+                    projectMemberships: {
+                      some: { project: { company: { ownerId: user.id } } },
+                    },
+                  },
+                },
+              ],
+            }
+          : { managerId: user.id };
     return {
       ...(conversationId ? { id: conversationId } : {}),
-      ...(this.canAccessAllMailbox(user) ? {} : { managerId: user.id }),
+      ...actorScope,
     };
   }
 

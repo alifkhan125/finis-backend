@@ -35,23 +35,23 @@ export class CompanyService {
     }
 
     if (userRole === 'manager') {
-      const memberships = await this.prisma.companyMember.findMany({
-        where: { userId },
-        select: { companyId: true },
-      });
+      const [companyMemberships, projectMemberships] = await Promise.all([
+        this.prisma.companyMember.findMany({
+          where: { userId, company: { isActive: true } },
+          select: { companyId: true },
+        }),
+        this.prisma.projectMember.findMany({
+          where: { userId, project: { company: { isActive: true } } },
+          select: { project: { select: { companyId: true } } },
+        }),
+      ]);
 
-      if (memberships.length > 0) {
-        return [
-          ...new Set(memberships.map((membership) => membership.companyId)),
-        ];
-      }
-
-      // If no specific company member link is assigned, allow active companies
-      const allActive = await this.prisma.company.findMany({
-        where: { isActive: true },
-        select: { id: true },
-      });
-      return allActive.map((company) => company.id);
+      return [
+        ...new Set([
+          ...companyMemberships.map((membership) => membership.companyId),
+          ...projectMemberships.map((membership) => membership.project.companyId),
+        ]),
+      ];
     }
 
     if (userRole === 'super_admin') {

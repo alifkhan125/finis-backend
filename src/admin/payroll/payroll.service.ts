@@ -1890,7 +1890,7 @@ export class PayrollService {
     const [payrolls, activeWorkers, inventoryAlerts] = await Promise.all([
       this.prisma.payroll.findMany({
         where: {
-          ...(companyIds.length > 0 ? { companyId: { in: companyIds } } : {}),
+          companyId: { in: companyIds },
           payPeriodStart: { lte: dbWindow.endDate },
           payPeriodEnd: { gte: dbWindow.startDate },
         },
@@ -1920,9 +1920,7 @@ export class PayrollService {
       }),
       this.prisma.inventoryItem.count({
         where: {
-          ...(companyIds.length > 0
-            ? { project: { companyId: { in: companyIds } } }
-            : {}),
+          project: { companyId: { in: companyIds } },
           currentQty: { lte: 0 },
         },
       }),

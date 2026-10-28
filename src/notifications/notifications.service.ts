@@ -390,7 +390,7 @@ export class NotificationsService {
     });
   }
 
-  async removeDeviceToken(token: string) {
-    return this.prisma.deviceToken.delete({ where: { token } });
+  async removeDeviceToken(token: string, userId: string) {
+    return this.prisma.deviceToken.deleteMany({ where: { token, userId } });
   }
 }

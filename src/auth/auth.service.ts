@@ -210,7 +210,7 @@ export class AuthService {
     });
 
     // Fixed password per user request
-    const plainPassword = '123456';
+    const plainPassword = `Fi!${randomUUID().replace(/-/g, '').slice(0, 12)}1a`;
     const passwordHash = await bcrypt.hash(plainPassword, 10);
 
     const userEmail = dto.email ?? `phone_${dto.phone}@finis.internal`;
@@ -260,11 +260,6 @@ export class AuthService {
       );
     }
 
-    console.log('Invited user credentials ->', {
-      email: user.email,
-      password: plainPassword,
-    });
-
     return {
       message: 'User invited successfully',
       userId: user.id,
@@ -284,7 +279,7 @@ export class AuthService {
       throw new BadRequestException('Cannot resend non-pending invitation');
 
     // Fixed password per user request
-    const plainPassword = '123456';
+    const plainPassword = `Fi!${randomUUID().replace(/-/g, '').slice(0, 12)}1a`;
     const passwordHash = await bcrypt.hash(plainPassword, 10);
 
     // Expiry আপডেট করো
@@ -312,11 +307,6 @@ export class AuthService {
         invitation.role,
       );
     }
-
-    console.log('Resent credentials ->', {
-      email: invitation.email,
-      password: plainPassword,
-    });
 
     return { message: 'Credentials resent successfully' };
   }
@@ -463,9 +453,7 @@ export class AuthService {
     const validStatuses = ['pending', 'accepted', 'expired', 'cancelled'];
 
     const where: any =
-      userRole === UserRole.super_admin || userRole === UserRole.admin
-        ? {}
-        : { senderId };
+      userRole === UserRole.super_admin ? {} : { senderId };
 
     if (filterRole && validRoles.includes(filterRole)) {
       where.role = filterRole;
@@ -502,7 +490,13 @@ export class AuthService {
 
     if (filterRole === 'worker') {
       const workerMembers = await this.prisma.projectMember.findMany({
-        where: { role: 'worker', managerId: { not: null } },
+        where: {
+          role: 'worker',
+          managerId: { not: null },
+          ...(userRole === UserRole.super_admin
+            ? {}
+            : { project: { company: { ownerId: senderId } } }),
+        },
         include: {
           user: {
             select: {

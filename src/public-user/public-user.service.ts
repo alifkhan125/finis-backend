@@ -11,15 +11,8 @@ export class PublicUserService {
       select: {
         id: true,
         fullName: true,
-        email: true,
-        phone: true,
         avatarUrl: true,
         role: true,
-        status: true,
-        department: true,
-        employeeId: true,
-        joinDate: true,
-        createdAt: true,
       },
     });
 

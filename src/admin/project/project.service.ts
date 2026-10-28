@@ -187,8 +187,8 @@ export class ProjectService {
       return project;
     }
 
-    if (userRole === UserRole.admin || this.isSuperAdmin(userRole)) {
-      return project;
+    if (userRole === UserRole.admin) {
+      throw new ForbiddenException('You do not have access to this project');
     }
 
     if (userRole === UserRole.manager) {
@@ -443,9 +443,9 @@ export class ProjectService {
       progress: true,
       startDate: true,
       endDate: true,
-      budget: true,
-      spent: true,
-      remaining: true,
+      ...(userRole === UserRole.manager
+        ? {}
+        : { budget: true, spent: true, remaining: true }),
       location: true,
       numFloors: true,
       unitPerFloor: true,
@@ -913,9 +913,13 @@ export class ProjectService {
       unitsPerFloor: project.unitPerFloor,
       unitPerFloorMin: (project as any).unitPerFloorMin,
       unitPerFloorMax: (project as any).unitPerFloorMax,
-      budget: project.budget,
-      spent: actualSpent,
-      remaining: actualRemaining,
+      ...(userRole === UserRole.manager
+        ? {}
+        : {
+            budget: project.budget,
+            spent: actualSpent,
+            remaining: actualRemaining,
+          }),
       client: {
         companyId: project.company.id,
         companyName: project.company.name,
@@ -938,6 +942,18 @@ export class ProjectService {
     userRole: string,
   ) {
     await this.verifyProjectAccess(projectId, adminId, userRole);
+
+    if (
+      userRole === UserRole.manager &&
+      (dto.budget !== undefined ||
+        dto.spent !== undefined ||
+        dto.remaining !== undefined ||
+        dto.companyId !== undefined)
+    ) {
+      throw new ForbiddenException(
+        'Managers cannot change project company or financial values',
+      );
+    }
 
     if (dto.companyId) {
       await this.verifyCompanyAccess(dto.companyId, adminId, userRole);
@@ -2415,9 +2431,18 @@ export class ProjectService {
     }
 
     const skip = (page - 1) * limit;
+    const effectiveAdmin = !isSuperAdmin
+      ? await this.prisma.user.findUnique({
+          where: { id: effectiveAdminId },
+          select: { tenantId: true },
+        })
+      : null;
     const where: any = {
       role: role === 'manager' ? UserRole.manager : UserRole.worker,
       status: UserStatus.active,
+      ...(!isSuperAdmin
+        ? { tenantId: effectiveAdmin?.tenantId ?? '00000000-0000-0000-0000-000000000000' }
+        : {}),
       ...(excludedUserIds.size > 0
         ? { id: { notIn: Array.from(excludedUserIds) } }
         : {}),
@@ -2474,20 +2499,28 @@ export class ProjectService {
         id: true,
         name: true,
         managerId: true,
-        company: { select: { ownerId: true } },
+        company: { select: { ownerId: true, tenantId: true } },
       },
     });
     if (!project) throw new NotFoundException('Project not found');
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, role: true, status: true },
+      select: { id: true, role: true, status: true, tenantId: true },
     });
     if (!user) throw new NotFoundException('User not found');
     if (user.role !== role)
       throw new BadRequestException(
         `Only users with role '${role}' can be added as ${role}`,
       );
+    if (
+      !this.isSuperAdmin(userRole) &&
+      (!project.company.tenantId || user.tenantId !== project.company.tenantId)
+    ) {
+      throw new ForbiddenException(
+        'This user belongs to a different admin account',
+      );
+    }
     const existing = await this.prisma.projectMember.findFirst({
       where: { projectId, userId },
     });

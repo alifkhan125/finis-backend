@@ -28,7 +28,7 @@ import { QuoteEstimatesService } from './quote-estimates.service';
 
 @Controller('admin/quote-estimates')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.admin, UserRole.super_admin)
+@Roles(UserRole.admin, UserRole.super_admin, UserRole.manager)
 export class QuoteEstimatesController {
   constructor(private readonly service: QuoteEstimatesService) {}
 
@@ -94,6 +94,7 @@ export class QuoteEstimatesController {
   }
 
   @Post(':id/send')
+  @Roles(UserRole.admin, UserRole.super_admin)
   send(
     @Param('id') id: string,
     @CurrentUser('id') userId: string,
@@ -103,6 +104,7 @@ export class QuoteEstimatesController {
   }
 
   @Get(':id/pdf')
+  @Roles(UserRole.admin, UserRole.super_admin)
   async exportPdf(
     @Param('id') id: string,
     @CurrentUser('id') userId: string,
@@ -119,6 +121,7 @@ export class QuoteEstimatesController {
   }
 
   @Post(':id/accept')
+  @Roles(UserRole.admin, UserRole.super_admin)
   accept(
     @Param('id') id: string,
     @Body() dto: AcceptQuoteEstimateDto,
@@ -129,6 +132,7 @@ export class QuoteEstimatesController {
   }
 
   @Post(':id/reject')
+  @Roles(UserRole.admin, UserRole.super_admin)
   reject(
     @Param('id') id: string,
     @Body() dto: RejectQuoteEstimateDto,
@@ -139,6 +143,7 @@ export class QuoteEstimatesController {
   }
 
   @Post(':id/cancel')
+  @Roles(UserRole.admin, UserRole.super_admin)
   cancel(
     @Param('id') id: string,
     @CurrentUser('id') userId: string,
@@ -148,6 +153,7 @@ export class QuoteEstimatesController {
   }
 
   @Post(':id/convert-to-project')
+  @Roles(UserRole.admin, UserRole.super_admin)
   convertToProject(
     @Param('id') id: string,
     @CurrentUser('id') userId: string,
@@ -157,6 +163,7 @@ export class QuoteEstimatesController {
   }
 
   @Post(':id/accept-and-create-project')
+  @Roles(UserRole.admin, UserRole.super_admin)
   acceptAndCreateProject(
     @Param('id') id: string,
     @Body() dto: AcceptQuoteEstimateDto,

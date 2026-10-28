@@ -144,8 +144,9 @@ export class InventoryController {
   getItemById(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('id', ParseUUIDPipe) id: string,
+    @Request() req: any,
   ) {
-    return this.inventoryService.getItemById(id, projectId);
+    return this.inventoryService.getItemById(id, projectId, req.user);
   }
 
   // ════════════════════════════════════════════
@@ -173,8 +174,9 @@ export class InventoryController {
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateInventoryItemDto,
+    @Request() req: any,
   ) {
-    return this.inventoryService.updateItem(id, projectId, dto);
+    return this.inventoryService.updateItem(id, projectId, dto, req.user);
   }
 
   /**
@@ -190,7 +192,7 @@ export class InventoryController {
     @Body() dto: UpdateStockDto,
     @Request() req: any,
   ) {
-    return this.inventoryService.updateStock(id, projectId, req.user.id, dto);
+    return this.inventoryService.updateStock(id, projectId, req.user.id, dto, req.user);
   }
 
   /**
@@ -202,8 +204,9 @@ export class InventoryController {
   deleteItem(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Param('id', ParseUUIDPipe) id: string,
+    @Request() req: any,
   ) {
-    return this.inventoryService.deleteItem(id, projectId);
+    return this.inventoryService.deleteItem(id, projectId, req.user);
   }
 
   /**
@@ -213,7 +216,7 @@ export class InventoryController {
   @Post('damages')
   @Roles('super_admin', 'admin', 'manager', 'worker')
   reportDamage(@Body() dto: CreateDamageDto, @Request() req: any) {
-    return this.inventoryService.reportDamage(req.user.id, dto);
+    return this.inventoryService.reportDamage(req.user.id, dto, req.user);
   }
 
   /**
@@ -225,7 +228,8 @@ export class InventoryController {
   updateDamageStatus(
     @Param('damageId', ParseUUIDPipe) damageId: string,
     @Body() dto: UpdateDamageStatusDto,
+    @Request() req: any,
   ) {
-    return this.inventoryService.updateDamageStatus(damageId, dto);
+    return this.inventoryService.updateDamageStatus(damageId, dto, req.user);
   }
 }

@@ -50,22 +50,7 @@ export class InventoryService {
     if (user.role === 'super_admin') return { id: { in: [] } };
 
     if (user.role === 'admin') {
-      let companyId = user.companyId;
-      if (!companyId) {
-        const company = await this.prisma.company.findFirst({
-          where: { ownerId: user.id },
-          select: { id: true },
-        });
-        companyId = company?.id;
-      }
-      if (!companyId) {
-        const member = await this.prisma.companyMember.findFirst({
-          where: { userId: user.id },
-          select: { companyId: true },
-        });
-        companyId = member?.companyId;
-      }
-      return companyId ? { companyId } : {};
+      return { company: { ownerId: user.id, isActive: true } };
     }
 
     const memberships = await this.prisma.projectMember.findMany({
@@ -88,6 +73,15 @@ export class InventoryService {
 
   private hasScope(scope: Record<string, any>): boolean {
     return Object.keys(scope).length > 0;
+  }
+
+  private async assertProjectAccess(projectId: string, user: AuthUser) {
+    const scope = await this.getProjectScope(user);
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, ...scope },
+      select: { id: true },
+    });
+    if (!project) throw new ForbiddenException('Project access denied');
   }
 
   private normalizePagination(query: PaginationInput) {
@@ -415,7 +409,8 @@ export class InventoryService {
   // SINGLE ITEM
   // ════════════════════════════════════════════
 
-  async getItemById(id: string, projectId: string) {
+  async getItemById(id: string, projectId: string, user: AuthUser) {
+    await this.assertProjectAccess(projectId, user);
     const item = await this.prisma.inventoryItem.findFirst({
       where: { id, projectId },
       include: {
@@ -464,7 +459,8 @@ export class InventoryService {
     });
   }
 
-  async updateItem(id: string, projectId: string, dto: UpdateInventoryItemDto) {
+  async updateItem(id: string, projectId: string, dto: UpdateInventoryItemDto, user: AuthUser) {
+    await this.assertProjectAccess(projectId, user);
     await this.findOrFail(id, projectId);
 
     return this.prisma.inventoryItem.update({
@@ -480,7 +476,8 @@ export class InventoryService {
     });
   }
 
-  async deleteItem(id: string, projectId: string) {
+  async deleteItem(id: string, projectId: string, user: AuthUser) {
+    await this.assertProjectAccess(projectId, user);
     await this.findOrFail(id, projectId);
     await this.prisma.inventoryItem.delete({ where: { id } });
     return { message: 'Inventory item deleted successfully' };
@@ -495,7 +492,9 @@ export class InventoryService {
     projectId: string,
     userId: string,
     dto: UpdateStockDto,
+    user: AuthUser,
   ) {
+    await this.assertProjectAccess(projectId, user);
     const item = await this.findOrFail(id, projectId);
     const newQty = item.currentQty + dto.quantity;
 
@@ -531,11 +530,13 @@ export class InventoryService {
   // DAMAGE REPORT  ("Damage" button)
   // ════════════════════════════════════════════
 
-  async reportDamage(userId: string, dto: CreateDamageDto) {
+  async reportDamage(userId: string, dto: CreateDamageDto, user: AuthUser) {
     const item = await this.prisma.inventoryItem.findUnique({
       where: { id: dto.inventoryId },
+      include: { project: { select: { id: true } } },
     });
     if (!item) throw new NotFoundException('Inventory item not found');
+    await this.assertProjectAccess(item.project.id, user);
 
     return this.prisma.inventoryDamage.create({
       data: {
@@ -557,11 +558,13 @@ export class InventoryService {
     });
   }
 
-  async updateDamageStatus(damageId: string, dto: UpdateDamageStatusDto) {
+  async updateDamageStatus(damageId: string, dto: UpdateDamageStatusDto, user: AuthUser) {
     const damage = await this.prisma.inventoryDamage.findUnique({
       where: { id: damageId },
+      include: { inventory: { select: { projectId: true } } },
     });
     if (!damage) throw new NotFoundException('Damage report not found');
+    await this.assertProjectAccess(damage.inventory.projectId, user);
 
     return this.prisma.inventoryDamage.update({
       where: { id: damageId },

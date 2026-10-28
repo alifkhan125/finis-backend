@@ -41,6 +41,8 @@ export class AuthController {
   }
 
   @Post('seed-super-admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('super_admin')
   seedSuperAdmin() {
     return this.authService.seedSuperAdmin();
   }
