@@ -18,6 +18,22 @@ export class PublicContentService {
     );
   }
 
+  private readonly corePublicPages: Record<
+    string,
+    { title: string; subtitle: string; body: string }
+  > = {
+    'privacy-policy': {
+      title: 'Privacy Policy',
+      subtitle: 'How Finis collects, uses, and protects information.',
+      body: '<p>This privacy policy is managed by the Finis administrator. Please review the published points below.</p>',
+    },
+    'terms-and-conditions': {
+      title: 'Terms & Conditions',
+      subtitle: 'The rules and responsibilities for using Finis.',
+      body: '<p>These terms are managed by the Finis administrator. Please review the published points below.</p>',
+    },
+  };
+
   async listPublishedPages() {
     try {
       return await (this.prisma as any).publicContentPage.findMany({
@@ -42,14 +58,30 @@ export class PublicContentService {
   async getPublishedPage(slug: string) {
     let page = null;
     try {
-      page = await (this.prisma as any).publicContentPage.findFirst({
-        where: { slug, isPublished: true },
+      page = await (this.prisma as any).publicContentPage.findUnique({
+        where: { slug },
       });
+
+      if (!page && this.corePublicPages[slug]) {
+        const defaults = this.corePublicPages[slug];
+        page = await (this.prisma as any).publicContentPage.upsert({
+          where: { slug },
+          update: {},
+          create: {
+            slug,
+            title: defaults.title,
+            subtitle: defaults.subtitle,
+            body: defaults.body,
+            sections: [],
+            isPublished: true,
+          },
+        });
+      }
     } catch (error) {
       if (!this.isMissingTableError(error)) throw error;
     }
 
-    if (!page) {
+    if (!page || !page.isPublished) {
       throw new NotFoundException('Content page not found');
     }
 

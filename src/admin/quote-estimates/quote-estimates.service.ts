@@ -315,7 +315,12 @@ export class QuoteEstimatesService {
         ...(role === UserRole.super_admin
           ? {}
           : role === UserRole.admin
-            ? { company: { ownerId: userId } }
+            ? {
+                OR: [
+                  { company: { ownerId: userId } },
+                  { createdById: userId },
+                ],
+              }
             : { createdById: userId }),
       },
       include: includeQuoteEstimate,
@@ -681,12 +686,13 @@ export class QuoteEstimatesService {
 
       // Title & Company
       doc.font('Helvetica-Bold').fontSize(18).fillColor('#FFFFFF').text('QUOTATION & SERVICE AGREEMENT', 54, 75, { width: 300 });
-      doc.font('Helvetica').fontSize(9.5).fillColor('#DCEAF2').text(quote.company.name, 54, 100, { width: 300 });
+      doc.font('Helvetica').fontSize(9.5).fillColor('#DCEAF2').text(quote.company?.name || 'Company / Service Provider', 54, 100, { width: 300 });
       doc.font('Helvetica').fontSize(8).fillColor('#A3C8DE').text('Binding commercial contract upon mutual execution', 54, 115, { width: 300 });
 
       // Header Meta (Right)
       doc.font('Helvetica-Bold').fontSize(11).fillColor('#FFFFFF').text(`Ref: ${quote.quoteNumber}`, 320, 56, { width: 220, align: 'right' });
-      doc.font('Helvetica').fontSize(8.5).fillColor('#DCEAF2').text(`Issued: ${quote.createdAt.toLocaleDateString('en-CA')}`, 320, 74, { width: 220, align: 'right' });
+      const issuedDateStr = quote.createdAt ? new Date(quote.createdAt).toLocaleDateString('en-CA') : new Date().toLocaleDateString('en-CA');
+      doc.font('Helvetica').fontSize(8.5).fillColor('#DCEAF2').text(`Issued: ${issuedDateStr}`, 320, 74, { width: 220, align: 'right' });
       const statusText = (quote.status || 'ISSUED').toUpperCase();
       doc.roundedRect(440, 94, 100, 18, 4).fill('#246387');
       doc.font('Helvetica-Bold').fontSize(8).fillColor('#FFFFFF').text(statusText, 440, 99, { width: 100, align: 'center' });
@@ -712,7 +718,7 @@ export class QuoteEstimatesService {
       doc.roundedRect(40, partiesY, 250, boxHeight, 6).fillAndStroke('#FFFFFF', '#E2E8F0');
       doc.roundedRect(40, partiesY, 250, 20, 5).fill('#F1F5F9');
       doc.font('Helvetica-Bold').fontSize(8).fillColor('#1D4F6D').text('PARTY A: SERVICE PROVIDER (COMPANY)', 48, partiesY + 6);
-      doc.font('Helvetica-Bold').fontSize(9.5).fillColor('#0F172A').text(quote.company.name, 48, partiesY + 26, { width: 234 });
+      doc.font('Helvetica-Bold').fontSize(9.5).fillColor('#0F172A').text(quote.company?.name || 'Company / Service Provider', 48, partiesY + 26, { width: 234 });
       doc.font('Helvetica').fontSize(8).fillColor('#475569')
         .text(`Representative: ${quote.createdBy?.fullName || 'Company Signatory'}`, 48, partiesY + 42, { width: 234 })
         .text(`Email: ${quote.createdBy?.email || 'N/A'}`, 48, partiesY + 56, { width: 234 })
@@ -722,7 +728,7 @@ export class QuoteEstimatesService {
       doc.roundedRect(305, partiesY, 250, boxHeight, 6).fillAndStroke('#FFFFFF', '#E2E8F0');
       doc.roundedRect(305, partiesY, 250, 20, 5).fill('#F1F5F9');
       doc.font('Helvetica-Bold').fontSize(8).fillColor('#1D4F6D').text('PARTY B: CUSTOMER / SERVICE RECEIVER', 313, partiesY + 6);
-      doc.font('Helvetica-Bold').fontSize(9.5).fillColor('#0F172A').text(quote.clientName, 313, partiesY + 26, { width: 234 });
+      doc.font('Helvetica-Bold').fontSize(9.5).fillColor('#0F172A').text(quote.clientName || 'Customer / Service Receiver', 313, partiesY + 26, { width: 234 });
       doc.font('Helvetica').fontSize(8).fillColor('#475569')
         .text(`Phone: ${quote.clientPhone || 'N/A'}`, 313, partiesY + 42, { width: 234 })
         .text(`Email: ${quote.clientEmail || 'N/A'}`, 313, partiesY + 56, { width: 234 })
@@ -734,9 +740,9 @@ export class QuoteEstimatesService {
       doc.roundedRect(40, doc.y, pageWidth, 42, 5).fillAndStroke('#F8FAFC', '#E2E8F0');
       const specsY = doc.y;
       doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#1D4F6D').text('Project Name:', 48, specsY + 7);
-      doc.font('Helvetica').fontSize(8.5).fillColor('#0F172A').text(` ${quote.projectName}`, 115, specsY + 7, { width: 390 });
+      doc.font('Helvetica').fontSize(8.5).fillColor('#0F172A').text(` ${quote.projectName || 'Project'}`, 115, specsY + 7, { width: 390 });
       const classification = [quote.projectType, quote.propertyType, quote.unitType].filter(Boolean).join(' • ') || 'General Construction';
-      const scheduleStr = `${quote.startDate ? quote.startDate.toLocaleDateString('en-CA') : 'TBD'} to ${quote.endDate ? quote.endDate.toLocaleDateString('en-CA') : 'TBD'}`;
+      const scheduleStr = `${quote.startDate ? new Date(quote.startDate).toLocaleDateString('en-CA') : 'TBD'} to ${quote.endDate ? new Date(quote.endDate).toLocaleDateString('en-CA') : 'TBD'}`;
       doc.font('Helvetica-Bold').fontSize(8).fillColor('#475569').text('Classification:', 48, specsY + 23);
       doc.font('Helvetica').fontSize(8).fillColor('#0F172A').text(` ${classification}`, 115, specsY + 23);
       doc.font('Helvetica-Bold').fontSize(8).fillColor('#475569').text('Schedule:', 320, specsY + 23);
@@ -809,7 +815,7 @@ export class QuoteEstimatesService {
       doc.y = tableHeaderY + 24;
 
       // Table Rows
-      quote.tasks.forEach((task, index) => {
+      (quote.tasks || []).forEach((task, index) => {
         const hasDesc = Boolean(task.description);
         const rowHeight = hasDesc ? 44 : 26;
         ensureSpace(rowHeight + 6);
@@ -820,8 +826,8 @@ export class QuoteEstimatesService {
         }
 
         doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#0F172A').text(`${index + 1}`, 46, rowY + 6, { width: 20 });
-        doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#0F172A').text(task.title, 72, rowY + 6, { width: 228 });
-        doc.font('Helvetica').fontSize(8).fillColor('#475569').text(`${Number(task.quantity)} ${task.unit ?? 'unit'}`, 305, rowY + 6, { width: 65, align: 'right' });
+        doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#0F172A').text(task.title || 'Service Item', 72, rowY + 6, { width: 228 });
+        doc.font('Helvetica').fontSize(8).fillColor('#475569').text(`${Number(task.quantity || 1)} ${task.unit ?? 'unit'}`, 305, rowY + 6, { width: 65, align: 'right' });
         doc.font('Helvetica').fontSize(8).fillColor('#475569').text(this.money(task.unitPrice), 375, rowY + 6, { width: 65, align: 'right' });
         doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#1D4F6D').text(this.money(task.totalPrice), 445, rowY + 6, { width: 95, align: 'right' });
 
@@ -875,7 +881,7 @@ export class QuoteEstimatesService {
       doc.roundedRect(40, sigBoxY, 250, sigHeight, 6).strokeColor('#CBD5E1').lineWidth(1).stroke();
       doc.roundedRect(40, sigBoxY, 250, 22, 5).fill('#F1F5F9');
       doc.font('Helvetica-Bold').fontSize(8).fillColor('#1D4F6D').text('FOR SERVICE PROVIDER (COMPANY)', 48, sigBoxY + 6);
-      doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#0F172A').text(quote.company.name, 48, sigBoxY + 28, { width: 234 });
+      doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#0F172A').text(quote.company?.name || 'Company / Service Provider', 48, sigBoxY + 28, { width: 234 });
 
       // Signature line
       doc.moveTo(48, sigBoxY + 66).lineTo(280, sigBoxY + 66).strokeColor('#94A3B8').lineWidth(0.8).stroke();
