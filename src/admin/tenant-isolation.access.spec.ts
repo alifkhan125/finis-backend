@@ -42,6 +42,41 @@ describe('tenant isolation', () => {
     expect(prisma.inventoryItem.findFirst).not.toHaveBeenCalled();
   });
 
+  it('scopes worker inventory to assigned projects and company membership', async () => {
+    const prisma = {
+      project: { findMany: jest.fn().mockResolvedValue([]) },
+      inventoryItem: { findMany: jest.fn().mockResolvedValue([]) },
+    } as any;
+    const service = new InventoryService(prisma);
+
+    await service.getProjectList({
+      id: 'worker-1',
+      role: UserRole.worker,
+      tenantId: 'tenant-1',
+    });
+
+    expect(prisma.project.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          OR: [
+            { members: { some: { userId: 'worker-1' } } },
+            {
+              company: {
+                is: {
+                  isActive: true,
+                  OR: [
+                    { members: { some: { userId: 'worker-1' } } },
+                    { tenantId: 'tenant-1' },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      }),
+    );
+  });
+
   it('scopes admin reimbursement lists to owned projects or own records', async () => {
     const prisma = {
       reimbursementExpense: {

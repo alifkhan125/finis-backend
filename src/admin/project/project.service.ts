@@ -2616,7 +2616,14 @@ export class ProjectService {
         id: true,
         name: true,
         managerId: true,
-        company: { select: { ownerId: true, tenantId: true } },
+        company: {
+          select: {
+            id: true,
+            ownerId: true,
+            tenantId: true,
+            owner: { select: { tenantId: true } },
+          },
+        },
       },
     });
     if (!project) throw new NotFoundException('Project not found');
@@ -2630,13 +2637,31 @@ export class ProjectService {
       throw new BadRequestException(
         `Only users with role '${role}' can be added as ${role}`,
       );
+    // Legacy companies may have a null/stale tenantId even though their owner
+    // and invited users are correctly linked to the same tenant. The company
+    // owner is the authoritative tenant source for project team assignment.
+    const projectTenantId =
+      project.company.owner.tenantId ?? project.company.tenantId;
     if (
       !this.isSuperAdmin(userRole) &&
-      (!project.company.tenantId || user.tenantId !== project.company.tenantId)
+      (!projectTenantId || user.tenantId !== projectTenantId)
     ) {
       throw new ForbiddenException(
         'This user belongs to a different admin account',
       );
+    }
+
+    // Repair the legacy company record after a safe owner/user tenant match so
+    // all existing integrations use the same tenant on subsequent requests.
+    if (
+      projectTenantId &&
+      user.tenantId === projectTenantId &&
+      project.company.tenantId !== projectTenantId
+    ) {
+      await this.prisma.company.update({
+        where: { id: project.company.id },
+        data: { tenantId: projectTenantId },
+      });
     }
     const existing = await this.prisma.projectMember.findFirst({
       where: { projectId, userId },

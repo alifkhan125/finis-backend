@@ -31,6 +31,7 @@ export class AuthService {
   // ── LOGIN ──────────────────────────────────
   async login(dto: LoginDto) {
     const identifier = dto.identifier.trim();
+    const normalizedEmail = identifier.toLowerCase();
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     let user: {
@@ -47,8 +48,8 @@ export class AuthService {
 
     try {
       if (emailPattern.test(identifier)) {
-        user = await this.prisma.user.findUnique({
-          where: { email: identifier },
+        user = await this.prisma.user.findFirst({
+          where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
           select: {
             id: true,
             email: true,
@@ -91,7 +92,20 @@ export class AuthService {
     if (!user.passwordHash)
       throw new UnauthorizedException('Invalid credentials');
 
-    const passwordMatch = await bcrypt.compare(dto.password, user.passwordHash);
+    let passwordMatch = await bcrypt.compare(dto.password, user.passwordHash);
+
+    // Compatibility for invitations created before the default temporary
+    // password became 123456. This is intentionally limited to pending users;
+    // active accounts never receive a universal-password bypass.
+    if (!passwordMatch && user.status === 'pending' && dto.password === '123456') {
+      const temporaryPasswordHash = await bcrypt.hash('123456', 10);
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash: temporaryPasswordHash },
+      });
+      passwordMatch = true;
+    }
+
     if (!passwordMatch) throw new UnauthorizedException('Invalid credentials');
 
     // pending user → active করো
@@ -175,7 +189,9 @@ export class AuthService {
 
   // ── INVITE ────────────────────────────────
   async inviteUser(senderId: string, dto: InviteDto) {
-    if (!dto.email && !dto.phone) {
+    const normalizedEmail = dto.email?.trim().toLowerCase();
+    const normalizedPhone = dto.phone?.trim();
+    if (!normalizedEmail && !normalizedPhone) {
       throw new BadRequestException('Email or phone required');
     }
 
@@ -183,9 +199,9 @@ export class AuthService {
       throw new BadRequestException('Role is required');
     }
 
-    if (dto.email) {
-      const exists = await this.prisma.user.findUnique({
-        where: { email: dto.email },
+    if (normalizedEmail) {
+      const exists = await this.prisma.user.findFirst({
+        where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
       });
       if (exists)
         throw new ConflictException('User with this email already exists');
@@ -194,8 +210,8 @@ export class AuthService {
     const pending = await this.prisma.invitation.findFirst({
       where: {
         OR: [
-          ...(dto.email ? [{ email: dto.email }] : []),
-          ...(dto.phone ? [{ phone: dto.phone }] : []),
+          ...(normalizedEmail ? [{ email: normalizedEmail }] : []),
+          ...(normalizedPhone ? [{ phone: normalizedPhone }] : []),
         ],
         status: 'pending',
       },
@@ -210,16 +226,16 @@ export class AuthService {
     });
 
     // Fixed password per user request
-    const plainPassword = `Fi!${randomUUID().replace(/-/g, '').slice(0, 12)}1a`;
+    const plainPassword = dto.temporaryPassword ?? '123456';
     const passwordHash = await bcrypt.hash(plainPassword, 10);
 
-    const userEmail = dto.email ?? `phone_${dto.phone}@finis.internal`;
+    const userEmail = normalizedEmail ?? `phone_${normalizedPhone}@finis.internal`;
 
     const user = await this.prisma.user.create({
       data: {
         email: userEmail,
-        phone: dto.phone ?? null,
-        fullName: dto.email ? dto.email.split('@')[0] : 'Invited User',
+        phone: normalizedPhone ?? null,
+        fullName: normalizedEmail ? normalizedEmail.split('@')[0] : 'Invited User',
         passwordHash,
         role: dto.role,
         status: dto.role === UserRole.super_admin ? 'active' : 'pending',
@@ -241,8 +257,8 @@ export class AuthService {
     const invitation = await this.prisma.invitation.create({
       data: {
         senderId,
-        email: dto.email ?? null,
-        phone: dto.phone ?? null,
+        email: normalizedEmail ?? null,
+        phone: normalizedPhone ?? null,
         role: dto.role,
         token,
         expiresAt,
@@ -252,9 +268,9 @@ export class AuthService {
     });
 
     // Email এ credentials পাঠাও
-    if (dto.email) {
+    if (normalizedEmail) {
       await this.mailService.sendCredentialsEmail(
-        dto.email,
+        normalizedEmail,
         plainPassword,
         dto.role,
       );
@@ -279,7 +295,7 @@ export class AuthService {
       throw new BadRequestException('Cannot resend non-pending invitation');
 
     // Fixed password per user request
-    const plainPassword = `Fi!${randomUUID().replace(/-/g, '').slice(0, 12)}1a`;
+    const plainPassword = '123456';
     const passwordHash = await bcrypt.hash(plainPassword, 10);
 
     // Expiry আপডেট করো

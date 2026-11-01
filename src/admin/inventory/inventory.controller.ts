@@ -159,7 +159,7 @@ export class InventoryController {
    * projectId comes from the form body (selected from dropdown).
    */
   @Post()
-  @Roles('super_admin', 'admin', 'manager')
+  @Roles('super_admin', 'admin', 'manager', 'worker')
   createItem(@Body() dto: CreateInventoryItemDto, @Request() req: any) {
     return this.inventoryService.createItem(dto, req.user);
   }

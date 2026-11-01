@@ -1754,8 +1754,13 @@ export class WorkerService {
 
     if (dto.inventoryUsed && dto.inventoryUsed.length > 0) {
       for (const item of dto.inventoryUsed) {
-        const inv = await this.prisma.inventoryItem.findUnique({
-          where: { id: item.inventoryId },
+        const inv = await this.prisma.inventoryItem.findFirst({
+          where: {
+            id: item.inventoryId,
+            project: {
+              company: { ownerId: subTask.task.project.company.ownerId },
+            },
+          },
         });
         if (!inv)
           throw new NotFoundException(
@@ -1795,7 +1800,7 @@ export class WorkerService {
               data: {
                 inventoryId: item.inventoryId,
                 userId: workerId,
-                projectId: subTask.task.project.id,
+                projectId: inv.projectId,
                 qtyChange: -stockDelta,
                 reason: `Used in task: ${subTask.task.title}`,
               },
@@ -1946,8 +1951,11 @@ export class WorkerService {
 
     if (dto.inventoryUsed && dto.inventoryUsed.length > 0) {
       for (const item of dto.inventoryUsed) {
-        const inv = await this.prisma.inventoryItem.findUnique({
-          where: { id: item.inventoryId },
+        const inv = await this.prisma.inventoryItem.findFirst({
+          where: {
+            id: item.inventoryId,
+            project: { company: { ownerId: task.project.company.ownerId } },
+          },
         });
         if (!inv)
           throw new NotFoundException(
@@ -1987,7 +1995,7 @@ export class WorkerService {
               data: {
                 inventoryId: item.inventoryId,
                 userId: workerId,
-                projectId: task.project.id,
+                projectId: inv.projectId,
                 qtyChange: -stockDelta,
                 reason: `Used in task: ${task.title}`,
               },
@@ -2136,8 +2144,13 @@ export class WorkerService {
 
     if (inventoryUsed.length > 0) {
       for (const item of inventoryUsed) {
-        const inv = await this.prisma.inventoryItem.findUnique({
-          where: { id: item.inventoryId },
+        const inv = await this.prisma.inventoryItem.findFirst({
+          where: {
+            id: item.inventoryId,
+            project: {
+              company: { ownerId: subTask.task.project.company.ownerId },
+            },
+          },
         });
         if (!inv)
           throw new NotFoundException(
@@ -2177,7 +2190,7 @@ export class WorkerService {
             data: {
               inventoryId: item.inventoryId,
               userId: workerId,
-              projectId: subTask.taskId,
+              projectId: inv.projectId,
               qtyChange: -stockDelta,
               reason:
                 item.reason ?? `Updated task inventory for ${subTask.title}`,
@@ -2339,8 +2352,11 @@ export class WorkerService {
 
     if (inventoryUsed.length > 0) {
       for (const item of inventoryUsed) {
-        const inv = await this.prisma.inventoryItem.findUnique({
-          where: { id: item.inventoryId },
+        const inv = await this.prisma.inventoryItem.findFirst({
+          where: {
+            id: item.inventoryId,
+            project: { company: { ownerId: task.project.company.ownerId } },
+          },
         });
         if (!inv)
           throw new NotFoundException(
@@ -2376,7 +2392,7 @@ export class WorkerService {
             data: {
               inventoryId: item.inventoryId,
               userId: workerId,
-              projectId: task.projectId,
+              projectId: inv.projectId,
               qtyChange: -stockDelta,
               reason:
                 item.reason ?? `Updated main task inventory for ${task.title}`,
@@ -2489,7 +2505,7 @@ export class WorkerService {
 
     return this.prisma.inventoryItem.findMany({
       where: {
-        projectId: subTask.task.projectId,
+        project: { company: { ownerId: subTask.task.project.company.ownerId } },
         currentQty: { gt: 0 },
       },
       select: {
@@ -2521,7 +2537,7 @@ export class WorkerService {
 
     return this.prisma.inventoryItem.findMany({
       where: {
-        projectId: task.projectId,
+        project: { company: { ownerId: task.project.company.ownerId } },
         currentQty: { gt: 0 },
       },
       select: {
@@ -2545,7 +2561,16 @@ export class WorkerService {
     const subTask = await this.prisma.subTask.findUnique({
       where: { id: taskId },
       include: {
-        task: { select: { id: true, title: true, projectId: true } },
+        task: {
+          select: {
+            id: true,
+            title: true,
+            projectId: true,
+            project: {
+              select: { company: { select: { ownerId: true } } },
+            },
+          },
+        },
         taskAssignee: true,
       },
     });
@@ -2565,7 +2590,7 @@ export class WorkerService {
     const inventory = await this.prisma.inventoryItem.findFirst({
       where: {
         id: inventoryId,
-        projectId: subTask.task.projectId,
+        project: { company: { ownerId: subTask.task.project.company.ownerId } },
       },
     });
 
@@ -2606,7 +2631,7 @@ export class WorkerService {
         data: {
           inventoryId,
           userId: workerId,
-          projectId: subTask.task.projectId,
+          projectId: inventory.projectId,
           qtyChange: -stockDelta,
           reason:
             dto.reason ?? `Updated task inventory for ${subTask.task.title}`,
@@ -2659,7 +2684,11 @@ export class WorkerService {
       where: { id: taskId },
       include: {
         project: {
-          select: { id: true, company: { select: { ownerId: true } } },
+          select: {
+            id: true,
+            companyId: true,
+            company: { select: { ownerId: true } },
+          },
         },
         taskAssignees: { select: { userId: true } },
         assignee: { select: { id: true } },
@@ -2682,7 +2711,7 @@ export class WorkerService {
     const inventory = await this.prisma.inventoryItem.findFirst({
       where: {
         id: inventoryId,
-        projectId: task.projectId,
+        project: { company: { ownerId: task.project.company.ownerId } },
       },
     });
 
@@ -2723,7 +2752,7 @@ export class WorkerService {
         data: {
           inventoryId,
           userId: workerId,
-          projectId: task.projectId,
+          projectId: inventory.projectId,
           qtyChange: -stockDelta,
           reason: dto.reason ?? `Updated main task inventory for ${task.title}`,
         },

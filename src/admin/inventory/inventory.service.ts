@@ -22,6 +22,7 @@ type AuthUser = {
   id: string;
   role: string;
   companyId?: string;
+  tenantId?: string | null;
 };
 
 type PaginationInput = {
@@ -43,7 +44,7 @@ export class InventoryService {
    *
    * super_admin → {} (no restriction — sees everything)
    * admin       → { companyId }
-   * others      → { id: { in: [...assigned project ids] } }
+   * others      → projects assigned directly or owned by a company they belong to
    */
   private async getProjectScope(user: AuthUser): Promise<Record<string, any>> {
     // Inventory is tenant/company-owned. Super Admin must not see company inventory.
@@ -53,11 +54,27 @@ export class InventoryService {
       return { company: { ownerId: user.id, isActive: true } };
     }
 
-    const memberships = await this.prisma.projectMember.findMany({
-      where: { userId: user.id },
-      select: { projectId: true },
-    });
-    return { id: { in: memberships.map((m) => m.projectId) } };
+    const companyAccess: Record<string, any>[] = [
+      { members: { some: { userId: user.id } } },
+    ];
+
+    // Invitations link workers/managers to the admin tenant even when an older
+    // integration did not create a CompanyMember row.
+    if (user.tenantId) companyAccess.push({ tenantId: user.tenantId });
+
+    return {
+      OR: [
+        { members: { some: { userId: user.id } } },
+        {
+          company: {
+            is: {
+              isActive: true,
+              OR: companyAccess,
+            },
+          },
+        },
+      ],
+    };
   }
 
   /**

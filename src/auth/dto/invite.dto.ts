@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { UserRole } from '../../generated/prisma/client';
 
 export class InviteDto {
@@ -12,4 +12,10 @@ export class InviteDto {
 
   @IsEnum(UserRole)
   role?: UserRole;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(6)
+  @MaxLength(72)
+  temporaryPassword?: string;
 }
