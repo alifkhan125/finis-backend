@@ -8,6 +8,8 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
+import { attendanceDay, shiftInstant } from '../common/attendance-policy';
+import { AttendanceService } from '../common/attendance.service';
 import { GeofencingGateway } from '../admin/project/geofencing.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
 import { LocationEventType, TaskPriority } from '../generated/prisma/client';
@@ -2807,23 +2809,12 @@ export class WorkerService {
       throw new ForbiddenException('You are not a member of this project');
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    // আজকের Attendance record খোঁজো বা বানাও
-    const attendance = await this.prisma.attendance.upsert({
-      where: { userId_date: { userId: workerId, date: today } },
-      update: { status: 'present' },
-      create: {
-        userId: workerId,
-        date: today,
-        status: 'present',
-      },
-      include: { sessions: true },
+    const engine = new AttendanceService(this.prisma);
+    const opened = await engine.open(workerId, dto.projectId, dto.lat, dto.lng);
+    const attendance = await this.prisma.attendance.findUnique({
+      where: { id: opened.session.attendanceId }, include: { sessions: true },
     });
-
-    // যদি কোনো session এখনো open থাকে (checkout হয়নি)
-    const openSession = attendance.sessions.find((s) => !s.checkOutTime);
+    const openSession = opened.alreadyOpen ? opened.session : null;
     if (openSession) {
       // আগে অন্য project-এ check-in করা থাকলে, প্রথমে সেটা check-out করতে হবে —
       // একই সময়ে দুই project-এর zone count করা যাবে না
@@ -2888,15 +2879,7 @@ export class WorkerService {
     }
 
     // নতুন session তৈরি করো — এই project-টা session-এর সাথে মনে রাখো
-    const session = await this.prisma.attendanceSession.create({
-      data: {
-        attendanceId: attendance.id,
-        projectId: dto.projectId,
-        checkInTime: new Date(),
-        inLat: dto.lat ?? null,
-        inLng: dto.lng ?? null,
-      },
-    });
+    const session = opened.session;
 
     // শুধু সিলেক্ট করা project-এর geofence(s)-এর বিরুদ্ধেই zone check করো —
     // অন্য project-গুলো touch করবো না
@@ -2986,78 +2969,14 @@ export class WorkerService {
       select: { fullName: true, avatarUrl: true },
     });
 
-    const openSessionReq = await this.prisma.attendanceSession.findFirst({
-      where: { attendance: { userId: workerId }, checkOutTime: null },
-      orderBy: { checkInTime: 'desc' },
-      include: { attendance: { include: { sessions: true } } },
-    });
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const attendance =
-      openSessionReq?.attendance ||
-      (await this.prisma.attendance.findUnique({
-        where: { userId_date: { userId: workerId, date: today } },
-        include: { sessions: true },
-      }));
-
-    if (!attendance) {
-      throw new BadRequestException('You have not checked in today');
-    }
-
-    // সবচেয়ে শেষের open session খোঁজো
-    const openSession =
-      openSessionReq ||
-      attendance.sessions
-        .filter((s) => !s.checkOutTime)
-        .sort((a, b) => b.checkInTime.getTime() - a.checkInTime.getTime())[0];
-
-    if (!openSession) {
-      const latestSession = attendance.sessions
-        .slice()
-        .sort((a, b) => b.checkInTime.getTime() - a.checkInTime.getTime())[0];
-
-      if (latestSession?.checkOutTime) {
-        return {
-          message: 'Already checked out',
-          session: latestSession,
-          totalHoursToday: Math.round((attendance.totalHours ?? 0) * 100) / 100,
-        };
-      }
-
-      throw new ConflictException(
-        'No active check-in found. Please check in first.',
-      );
-    }
-
-    const now = new Date();
-
-    // ✅ in-memory live state থেকে সঠিক zoneSeconds নেও — DB-র stale value নয়।
-    // Worker zone-এর ভেতরে থাকতে থাকতেই checkout করতে পারে, তখন এখন পর্যন্ত
-    // চলমান সময়টাও যোগ হওয়া দরকার, যেটা closeWorkerSession() করে দেয়।
-    const liveZoneSeconds = this.geofencingGateway.closeWorkerSession(workerId);
-    const fallbackSessionSeconds = Math.max(
-      0,
-      Math.floor((now.getTime() - openSession.checkInTime.getTime()) / 1000),
-    );
-    const sessionZoneSeconds =
-      liveZoneSeconds > 0
-        ? liveZoneSeconds
-        : openSession.zoneSeconds || fallbackSessionSeconds;
-    const hoursWorked = sessionZoneSeconds / 3600;
-
-    // Session close করো — zoneSeconds-টাও persist করো, আগে এটা miss হতো
-    const updatedSession = await this.prisma.attendanceSession.update({
-      where: { id: openSession.id },
-      data: {
-        checkOutTime: now,
-        hoursWorked: Math.round(hoursWorked * 100) / 100,
-        zoneSeconds: sessionZoneSeconds,
-        outLat: dto.lat ?? null,
-        outLng: dto.lng ?? null,
-      },
-    });
+    const zoneSeconds = this.geofencingGateway.closeWorkerSession(workerId);
+    const engine = new AttendanceService(this.prisma);
+    const closed = await engine.close(workerId, dto.lat, dto.lng, zoneSeconds);
+    const updatedSession = closed.session;
+    const attendance = updatedSession.attendance;
+    const openSession = updatedSession;
+    const now = updatedSession.checkOutTime;
+    if (closed.alreadyClosed) return { message: 'Already checked out', session: updatedSession, totalHoursToday: attendance.totalHours ?? 0 };
 
     await this.prisma.locationLog.create({
       data: {
@@ -3093,36 +3012,9 @@ export class WorkerService {
       liveState.lastOutsideLogId = null;
     }
 
-    // update এর পরে fetch করো — না হলে পুরনো hoursWorked যোগ হবে
-    const allSessions = await this.prisma.attendanceSession.findMany({
-      where: { attendanceId: attendance.id },
-    });
-
-    // শুধু closed session এর zone time যোগ করো
-    const totalHours = allSessions
-      .filter((s) => s.checkOutTime !== null)
-      .reduce((sum, s) => {
-        const durationSeconds = s.checkOutTime
-          ? Math.max(
-              0,
-              Math.floor(
-                (s.checkOutTime.getTime() - s.checkInTime.getTime()) / 1000,
-              ),
-            )
-          : 0;
-        return sum + (s.zoneSeconds || durationSeconds) / 3600;
-      }, 0);
-
-    await this.prisma.attendance.update({
-      where: { id: attendance.id },
-      data: { totalHours: Math.round(totalHours * 100) / 100 },
-    });
-
-    await this.syncDailyPayrollDraft(
-      workerId,
-      today,
-      Math.round(totalHours * 100) / 100,
-    );
+    const summary = await engine.summary(workerId, closed.day, { includeOpen: false });
+    const totalHours = summary.totalInsideHours;
+    await this.syncDailyPayrollDraft(workerId, new Date(`${closed.day}T00:00:00Z`), summary.totalCountedHours);
 
     await this.notificationsService.send({
       userId: workerId,
@@ -3177,15 +3069,12 @@ export class WorkerService {
   }
 
   async getTodayAttendance(workerId: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const attendance = await this.prisma.attendance.findUnique({
-      where: { userId_date: { userId: workerId, date: today } },
-      include: {
-        sessions: { orderBy: { checkInTime: 'asc' } },
-      },
-    });
+    const engine = new AttendanceService(this.prisma);
+    const open = await this.prisma.attendanceSession.findFirst({ where: { attendance: { userId: workerId }, checkOutTime: null }, include: { attendance: true } });
+    const day = await engine.dayForCheckIn(workerId, open?.checkInTime ?? new Date());
+    const today = new Date(`${day}T00:00:00Z`);
+    const attendance = await this.prisma.attendance.findUnique({ where: { userId_date: { userId: workerId, date: today } }, include: { sessions: { orderBy: { checkInTime: 'asc' } } } });
+    const calculation = await engine.summary(workerId, day);
 
     if (!attendance) {
       return {
@@ -3193,6 +3082,7 @@ export class WorkerService {
         status: 'not_recorded',
         sessions: [],
         totalHours: 0,
+        calculation,
       };
     }
 
@@ -3202,7 +3092,8 @@ export class WorkerService {
       date: today,
       status: openSession ? 'clocked_in' : 'clocked_out',
       sessions: attendance.sessions,
-      totalHours: attendance.totalHours ?? 0,
+      totalHours: calculation.totalInsideHours,
+      calculation,
       currentSessionStart: openSession?.checkInTime ?? null,
     };
   }
@@ -3217,8 +3108,6 @@ export class WorkerService {
           sessions: { orderBy: { checkInTime: 'asc' } },
         },
         orderBy: { date: 'desc' },
-        skip,
-        take: limit,
       }),
       this.prisma.attendance.count({ where: { userId: workerId } }),
     ]);
@@ -3231,8 +3120,9 @@ export class WorkerService {
       },
     });
 
-    const enrichedData = data.map((attendance) => {
-      const dateString = attendance.date.toISOString().split('T')[0];
+    const engine = new AttendanceService(this.prisma);
+    const enrichedData = await Promise.all(data.map(async (attendance) => {
+      const dateString = attendance.sessions[0]?.checkInTime ? await engine.dayForCheckIn(workerId, attendance.sessions[0].checkInTime) : attendance.date.toISOString().split('T')[0];
       const reqs = adjustments.filter(
         (a) => a.date.toISOString().split('T')[0] === dateString,
       );
@@ -3250,8 +3140,12 @@ export class WorkerService {
         .filter((r) => r.requestType === 'check_out')
         .sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime());
 
+      const calculation = await engine.summary(workerId, dateString);
       return {
         ...attendance,
+        date: new Date(`${dateString}T00:00:00Z`),
+        status: calculation.status, totalHours: calculation.totalInsideHours,
+        sessions: calculation.sessions, calculation,
         latestCheckInRequest: checkInReqs.length > 0 ? checkInReqs[0] : null,
         latestCheckOutRequest: checkOutReqs.length > 0 ? checkOutReqs[0] : null,
         adjustmentStatus: latestAdjustment ? latestAdjustment.status : null,
@@ -3262,128 +3156,34 @@ export class WorkerService {
           ? latestAdjustment.requestType
           : null,
       };
-    });
+    }));
 
+    const grouped = [...new Map(enrichedData.map(r => [r.date.toISOString(), r])).values()];
     return {
-      data: enrichedData,
-      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+      data: grouped.slice(skip, skip + limit),
+      meta: { total: grouped.length, page, limit, totalPages: Math.ceil(grouped.length / limit) },
     };
   }
 
   async getWeeklyAttendanceSummary(workerId: string) {
-    const end = new Date();
-    end.setHours(23, 59, 59, 999);
-
-    const start = new Date(end);
-    start.setDate(start.getDate() - 6);
-    start.setHours(0, 0, 0, 0);
-
-    const attendances = await this.prisma.attendance.findMany({
-      where: {
-        userId: workerId,
-        date: {
-          gte: start,
-          lte: end,
-        },
-      },
-      include: {
-        sessions: {
-          include: {
-            project: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-          },
-        },
-      },
-      orderBy: { date: 'asc' },
-    });
-
-    const days = Array.from({ length: 7 }, (_, index) => {
-      const day = new Date(start);
-      day.setDate(start.getDate() + index);
-      day.setHours(0, 0, 0, 0);
+    const engine = new AttendanceService(this.prisma);
+    const lastDay = attendanceDay(new Date());
+    const projects = await this.prisma.project.findMany({ where: { teamMembers: { some: { userId: workerId } } }, select: { id: true, name: true } });
+    const days = await Promise.all(Array.from({ length: 7 }, async (_, index) => {
+      const day = new Date(Date.parse(`${lastDay}T12:00:00Z`) - (6 - index) * 86400000).toISOString().slice(0, 10);
+      const calculation = await engine.summary(workerId, day);
+      const totals = new Map<string, number>();
+      for (const session of calculation.sessions) totals.set(session.projectId ?? '', (totals.get(session.projectId ?? '') ?? 0) + session.insideSeconds / 3600);
       return {
-        date: day.toISOString().slice(0, 10),
-        dayLabel: day.toLocaleDateString('en-US', { weekday: 'short' }),
-        totalHours: 0,
-        totalHoursDisplay: '0h 0m',
-        sessionCount: 0,
-        projects: [] as Array<{
-          projectId: string | null;
-          projectName: string | null;
-          hours: number;
-        }>,
+        date: day, dayLabel: new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short' }),
+        totalHours: calculation.totalInsideHours, totalHoursDisplay: this.formatHoursAndMinutes(calculation.totalInsideHours),
+        sessionCount: calculation.totalSessions, calculation,
+        projects: [...totals].map(([id, hours]) => ({ projectId: id || null, projectName: projects.find(p => p.id === id)?.name ?? null, hours })),
       };
-    });
-
-    const dayMap = new Map(days.map((day) => [day.date, day]));
-
-    for (const attendance of attendances) {
-      const key = attendance.date.toISOString().slice(0, 10);
-      const day = dayMap.get(key);
-      if (!day) continue;
-
-      const sessions = attendance.sessions.filter(
-        (session) => session.checkOutTime,
-      );
-      day.sessionCount += sessions.length;
-
-      for (const session of sessions) {
-        const hours = session.hoursWorked ?? (session.zoneSeconds ?? 0) / 3600;
-        day.totalHours += hours;
-
-        const projectId = session.projectId ?? null;
-        const projectName = session.project?.name ?? null;
-        const existing = day.projects.find(
-          (project) => project.projectId === projectId,
-        );
-
-        if (existing) {
-          existing.hours += hours;
-        } else {
-          day.projects.push({
-            projectId,
-            projectName,
-            hours,
-          });
-        }
-      }
-    }
-
-    const normalizedDays = days.map((day) => {
-      const roundedHours = Math.round(day.totalHours * 100) / 100;
-      return {
-        ...day,
-        totalHours: roundedHours,
-        totalHoursDisplay: this.formatHoursAndMinutes(roundedHours),
-        projects: day.projects.map((project) => ({
-          ...project,
-          hours: Math.round(project.hours * 100) / 100,
-        })),
-      };
-    });
-
-    const totalHours = normalizedDays.reduce(
-      (sum, day) => sum + day.totalHours,
-      0,
-    );
-
-    return {
-      dateRange: {
-        start: start.toISOString(),
-        end: end.toISOString(),
-      },
-      totalHours: Math.round(totalHours * 100) / 100,
-      totalHoursDisplay: this.formatHoursAndMinutes(totalHours),
-      days: normalizedDays,
-    };
+    }));
+    const totalHours = days.reduce((sum, day) => sum + day.totalHours, 0);
+    return { dateRange: { start: `${days[0].date}T00:00:00Z`, end: `${lastDay}T23:59:59Z` }, totalHours, totalHoursDisplay: this.formatHoursAndMinutes(totalHours), days };
   }
-  // ─────────────────────────────────────────────
-  // LEAVE REQUESTS
-  // ─────────────────────────────────────────────
 
   async createLeaveRequest(workerId: string, dto: CreateLeaveRequestDto) {
     const startDate = new Date(dto.startDate);
@@ -3568,54 +3368,20 @@ export class WorkerService {
   // ─────────────────────────────────────────────
 
   async createSupportRequest(workerId: string, dto: CreateSupportRequestDto) {
-    let targetUserId: string | null = null;
+    // Support is a platform-level channel. Keep accepting the legacy sendTo
+    // field for old clients, but never route support requests to a company
+    // admin or manager.
+    const superAdmin = await this.prisma.user.findFirst({
+      where: { role: 'super_admin', status: 'active' },
+      select: { id: true },
+    });
 
-    if (dto.sendTo === 'manager') {
-      const managerMap = await this.prisma.workerManagerMap.findUnique({
-        where: { workerId },
-        include: { manager: { select: { id: true } } },
-      });
-      targetUserId = managerMap?.manager?.id ?? null;
-
-      if (!targetUserId) {
-        const projectMember = await this.prisma.projectMember.findFirst({
-          where: { userId: workerId },
-          include: {
-            project: {
-              include: { teamMembers: { where: { role: 'manager' } } },
-            },
-          },
-        });
-        if (projectMember?.project?.teamMembers?.[0]) {
-          targetUserId = projectMember.project.teamMembers[0].userId;
-        }
-      }
-    } else {
-      // Admin — worker  company    owner
-      const companyMember = await this.prisma.companyMember.findFirst({
-        where: { userId: workerId },
-        include: { company: { select: { ownerId: true } } },
-      });
-      targetUserId = companyMember?.company?.ownerId ?? null;
-
-      if (!targetUserId) {
-        const projectMember = await this.prisma.projectMember.findFirst({
-          where: { userId: workerId },
-          include: {
-            project: { include: { company: { select: { ownerId: true } } } },
-          },
-        });
-        targetUserId = projectMember?.project?.company?.ownerId ?? null;
-      }
-    }
-
-    if (!targetUserId)
-      throw new NotFoundException(`No ${dto.sendTo} found for your account`);
+    if (!superAdmin) throw new NotFoundException('Support not available');
 
     // Notification হিসেবে পাঠাও
     const notification = await this.prisma.notification.create({
       data: {
-        userId: targetUserId,
+        userId: superAdmin.id,
         title: `Support Request from Worker`,
         body: dto.message,
         type: 'general',

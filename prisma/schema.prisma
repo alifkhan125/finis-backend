@@ -925,6 +925,7 @@ model WorkSchedule {
   name        String
   startTime   String                   @map("start_time")
   endTime     String                   @map("end_time")
+  graceMinutes Int                     @default(15) @map("grace_minutes")
   days        ShiftDay[]
   createdAt   DateTime                 @default(now()) @map("created_at")
   assignments WorkScheduleAssignment[]
@@ -950,6 +951,7 @@ model Attendance {
   date       DateTime
   status     String              @default("present")
   totalHours Float?
+  calculation Json?
   createdAt  DateTime            @default(now()) @map("created_at")
   updatedAt  DateTime            @updatedAt @map("updated_at")
   sessions   AttendanceSession[]
@@ -987,6 +989,12 @@ model TimeAdjustmentRequest {
   originalTime DateTime             @map("original_time")
   adjustedTime DateTime             @map("adjusted_time")
   reason       String?
+  kind         String               @default("correction")
+  scope        String               @default("single_day")
+  scheduleId   String?              @map("schedule_id") @db.Uuid
+  sessionId    String?              @map("session_id") @db.Uuid
+  startTime    String?              @map("start_time")
+  endTime      String?              @map("end_time")
   status       TimeAdjustmentStatus @default(pending)
   reviewedBy   String?              @map("reviewed_by") @db.Uuid
   reviewedAt   DateTime?            @map("reviewed_at")
@@ -994,6 +1002,25 @@ model TimeAdjustmentRequest {
   worker       User                 @relation(fields: [workerId], references: [id])
 
   @@map("time_adjustment_requests")
+}
+
+model AttendanceShiftRevision {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  companyId    String?  @map("company_id") @db.Uuid
+  scheduleId   String?  @map("schedule_id") @db.Uuid
+  requestId    String?  @unique @map("request_id") @db.Uuid
+  effectiveFrom DateTime @map("effective_from") @db.Date
+  effectiveTo  DateTime? @map("effective_to") @db.Date
+  startTime    String   @map("start_time")
+  endTime      String   @map("end_time")
+  days         ShiftDay[]
+  graceMinutes Int      @default(15) @map("grace_minutes")
+  approvedBy   String?  @map("approved_by") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([userId, effectiveFrom])
+  @@map("attendance_shift_revisions")
 }
 
 model LeaveRequest {

@@ -51,7 +51,18 @@ export class InventoryService {
     if (user.role === 'super_admin') return { id: { in: [] } };
 
     if (user.role === 'admin') {
-      return { company: { ownerId: user.id, isActive: true } };
+      return {
+        company: {
+          is: {
+            isActive: true,
+            OR: [
+              { ownerId: user.id },
+              { members: { some: { userId: user.id } } },
+              ...(user.tenantId ? [{ tenantId: user.tenantId }] : []),
+            ],
+          },
+        },
+      };
     }
 
     const companyAccess: Record<string, any>[] = [
@@ -64,7 +75,10 @@ export class InventoryService {
 
     return {
       OR: [
-        { members: { some: { userId: user.id } } },
+        // Managers are commonly assigned directly on Project.managerId and
+        // may not also have a ProjectMember/CompanyMember row.
+        ...(user.role === 'manager' ? [{ managerId: user.id }] : []),
+        { teamMembers: { some: { userId: user.id } } },
         {
           company: {
             is: {

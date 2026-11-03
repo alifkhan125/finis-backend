@@ -518,6 +518,8 @@ export class ProjectController {
       startTime: string;
       endTime: string;
       days?: string[];
+      graceMinutes?: number;
+      effectiveFrom?: string;
     },
     @CurrentUser('id') adminId: string,
     @CurrentUser('role') userRole: string,
@@ -530,6 +532,8 @@ export class ProjectController {
       adminId,
       userRole,
       body.days as any,
+      body.graceMinutes,
+      body.effectiveFrom,
     );
   }
 
@@ -539,7 +543,7 @@ export class ProjectController {
   updateSchedule(
     @Param('id') projectId: string,
     @Param('scheduleId') scheduleId: string,
-    @Body() body: { startTime?: string; endTime?: string; days?: string[] },
+    @Body() body: { startTime?: string; endTime?: string; days?: string[]; graceMinutes?: number; effectiveFrom?: string; userId?: string },
     @CurrentUser('id') adminId: string,
     @CurrentUser('role') userRole: string,
   ) {

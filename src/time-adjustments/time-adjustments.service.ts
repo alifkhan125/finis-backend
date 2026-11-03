@@ -4,6 +4,9 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
+import { AttendanceService } from '../common/attendance.service';
+import { attendanceDay, timeMinutes, shiftInstant, formatShiftTime } from '../common/attendance-policy';
+import { TimeAdjustmentDto } from './dto';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   TimeAdjustmentType,
@@ -14,26 +17,45 @@ import {
 export class TimeAdjustmentsService {
   constructor(private prisma: PrismaService) {}
 
-  async createRequest(
-    workerId: string,
-    data: {
-      date: string;
-      requestType: 'check_in' | 'check_out';
-      originalTime: string;
-      adjustedTime: string;
-      reason?: string;
-    },
-  ) {
-    return this.prisma.timeAdjustmentRequest.create({
-      data: {
-        workerId,
-        date: new Date(data.date),
-        requestType: data.requestType as TimeAdjustmentType,
-        originalTime: new Date(data.originalTime),
-        adjustedTime: new Date(data.adjustedTime),
-        reason: data.reason,
-      },
-    });
+  async createRequest(workerId: string, data: TimeAdjustmentDto) {
+    const day = data.date.slice(0, 10);
+    const kind = data.kind ?? (data.reason?.includes('[Scope: regular]') ? 'shift_change' : 'correction');
+    const scope = data.scope ?? (kind === 'shift_change' ? 'regular' : 'single_day');
+    const requestType = data.requestType ?? 'check_in';
+    let sessionId = data.sessionId;
+    let scheduleId = data.scheduleId;
+    let startTime = data.startTime, endTime = data.endTime;
+    if (kind === 'shift_change') {
+      const assignment = await this.prisma.workScheduleAssignment.findFirst({
+        where: { userId: workerId, ...(scheduleId ? { scheduleId } : {}) },
+        orderBy: { assignedAt: 'desc' }, include: { schedule: true },
+      });
+      if (!assignment) throw new BadRequestException('Assigned shift not found');
+      scheduleId = assignment.scheduleId;
+      const legacyTime = data.reason?.match(/\[Time:\s*([^\]]+)\]/)?.[1];
+      const proposed = legacyTime ?? (data.adjustedTime ? new Intl.DateTimeFormat('en-GB', { timeZone: process.env.ATTENDANCE_TIMEZONE || 'Asia/Dhaka', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(data.adjustedTime)) : undefined);
+      startTime ??= requestType === 'check_in' && proposed ? proposed : assignment.schedule.startTime;
+      endTime ??= requestType === 'check_out' && proposed ? proposed : assignment.schedule.endTime;
+      try { if (timeMinutes(startTime) === timeMinutes(endTime)) throw Error(); } catch { throw new BadRequestException('Valid, different shift start and end times are required'); }
+      startTime = formatShiftTime(startTime); endTime = formatShiftTime(endTime);
+    } else {
+      if (!data.originalTime || !data.adjustedTime) throw new BadRequestException('Original and corrected times are required');
+      const sessions = await this.prisma.attendanceSession.findMany({
+        where: { attendance: { userId: workerId }, ...(sessionId ? { id: sessionId } : {}) },
+        orderBy: { checkInTime: 'asc' },
+      });
+      const match = sessions.find(s => (requestType === 'check_in' ? s.checkInTime : s.checkOutTime)?.getTime() === new Date(data.originalTime!).getTime());
+      if (!match) throw new BadRequestException('Select the actual session to correct');
+      const sessionDay = await new AttendanceService(this.prisma).dayForCheckIn(workerId, match.checkInTime);
+      if (sessionDay !== day) throw new BadRequestException('The correction date must match the selected attendance day');
+      sessionId = match.id;
+    }
+    return this.prisma.timeAdjustmentRequest.create({ data: {
+      workerId, date: new Date(`${day}T00:00:00Z`), requestType,
+      originalTime: new Date(data.originalTime ?? `${day}T00:00:00Z`),
+      adjustedTime: data.adjustedTime ? new Date(data.adjustedTime) : shiftInstant(day, timeMinutes(startTime!)),
+      reason: data.reason, kind, scope, scheduleId, sessionId, startTime, endTime,
+    } });
   }
 
   async getAllRequests(user?: any, status?: string) {
@@ -82,179 +104,78 @@ export class TimeAdjustmentsService {
     return this.getAllRequests(user, 'pending');
   }
 
-  async updateRequestStatus(
-    id: string,
-    status: string | undefined,
-    reviewer: { id: string; role: string },
-  ) {
-    const request = await this.prisma.timeAdjustmentRequest.findUnique({
-      where: { id },
-    });
-    if (!request) throw new NotFoundException('Request not found');
-
-    if (reviewer.role !== 'super_admin') {
-      const allowed = await this.prisma.user.findFirst({
-        where: {
-          id: request.workerId,
-          ...(reviewer.role === 'admin'
-            ? {
-                OR: [
-                  { companyMembers: { some: { company: { ownerId: reviewer.id } } } },
-                  { projectMemberships: { some: { project: { company: { ownerId: reviewer.id } } } } },
-                ],
-              }
-            : {
-                OR: [
-                  { myManager: { is: { managerId: reviewer.id } } },
-                  { projectMemberships: { some: { managerId: reviewer.id } } },
-                ],
-              }),
-        },
-        select: { id: true },
-      });
+  async updateRequestStatus(id: string, status: string | undefined, reviewer: { id: string; role: string }) {
+    if (!['admin', 'super_admin'].includes(reviewer.role)) throw new ForbiddenException('Only an admin can approve attendance changes');
+    const normalized = status === 'rejected' || status === 'reject' ? 'denied' : status;
+    if (!['approved', 'denied'].includes(normalized ?? '')) throw new BadRequestException('Valid status is required');
+    return this.prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM time_adjustment_requests WHERE id = ${id}::uuid FOR UPDATE`;
+      const request = await tx.timeAdjustmentRequest.findUnique({ where: { id } });
+      if (!request) throw new NotFoundException('Request not found');
+      const allowed = await tx.user.findFirst({ where: { id: request.workerId, ...(reviewer.role === 'super_admin' ? {} : { OR: [
+        { companyMembers: { some: { company: { ownerId: reviewer.id } } } },
+        { projectMemberships: { some: { project: { company: { ownerId: reviewer.id } } } } },
+      ] }) }, select: { id: true } });
       if (!allowed) throw new ForbiddenException('Request access denied');
-    }
-
-    if (request.status !== 'pending') return request;
-
-    const normalizedStatus =
-      status === 'rejected' || status === 'reject' ? 'denied' : status;
-
-    if (!['approved', 'denied'].includes(normalizedStatus ?? '')) {
-      throw new BadRequestException('Valid status is required');
-    }
-
-    const updated = await this.prisma.timeAdjustmentRequest.update({
-      where: { id },
-      data: {
-        status: normalizedStatus as TimeAdjustmentStatus,
-        reviewedBy: reviewer.id,
-        reviewedAt: new Date(),
-      },
-    });
-
-    if (normalizedStatus === 'approved') {
-      const isSingleDay = request.reason?.includes('[Scope: single_day]');
-      const reqDateStr = request.date.toISOString().split('T')[0];
-
-      if (isSingleDay) {
-        // Handle Single Day Exception: Only update/create attendance for this specific date
-        let attendance = await this.prisma.attendance.findFirst({
-          where: {
-            userId: request.workerId,
-            date: {
-              gte: new Date(`${reqDateStr}T00:00:00.000Z`),
-              lte: new Date(`${reqDateStr}T23:59:59.999Z`),
-            },
-          },
-          include: { sessions: true },
+      if (request.status !== 'pending') return request;
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${request.workerId}::uuid FOR UPDATE`;
+      const day = request.date.toISOString().slice(0, 10);
+      const engine = new AttendanceService(this.prisma);
+      if (normalized === 'approved' && request.kind === 'shift_change') {
+        const assignment = await tx.workScheduleAssignment.findFirst({
+          where: { userId: request.workerId, ...(request.scheduleId ? { scheduleId: request.scheduleId } : {}) },
+          orderBy: { assignedAt: 'desc' }, include: { schedule: true },
         });
-
-        if (!attendance) {
-          attendance = await this.prisma.attendance.create({
-            data: {
-              userId: request.workerId,
-              date: new Date(`${reqDateStr}T00:00:00.000Z`),
-              status: 'present',
-            },
-            include: { sessions: true },
-          });
+        if (!assignment) throw new BadRequestException('Shift assignment no longer exists; submit a new request');
+        const schedule = assignment.schedule;
+        if (reviewer.role !== 'super_admin') {
+          const company = await tx.company.findFirst({ where: { id: schedule.companyId!, ownerId: reviewer.id }, select: { id: true } });
+          if (!company) throw new ForbiddenException('Shift access denied');
         }
-
-        if (attendance.sessions.length > 0) {
-          const session = attendance.sessions[0];
-          await this.prisma.attendanceSession.update({
-            where: { id: session.id },
-            data: {
-              checkInTime:
-                request.requestType === 'check_in'
-                  ? request.adjustedTime
-                  : session.checkInTime,
-              checkOutTime:
-                request.requestType === 'check_out'
-                  ? request.adjustedTime
-                  : session.checkOutTime,
-            },
-          });
-        } else {
-          await this.prisma.attendanceSession.create({
-            data: {
-              attendanceId: attendance.id,
-              checkInTime:
-                request.requestType === 'check_in'
-                  ? request.adjustedTime
-                  : request.originalTime,
-              checkOutTime:
-                request.requestType === 'check_out'
-                  ? request.adjustedTime
-                  : null,
-            },
-          });
-        }
-
-        // Recalculate total hours for that date
-        const updatedAttendance = await this.prisma.attendance.findUnique({
-          where: { id: attendance.id },
-          include: { sessions: true },
-        });
-        if (updatedAttendance) {
-          const totalHours = updatedAttendance.sessions.reduce((sum, s) => {
-            if (!s.checkInTime || !s.checkOutTime) return sum;
-            const diffMs = s.checkOutTime.getTime() - s.checkInTime.getTime();
-            return sum + (diffMs > 0 ? diffMs / (1000 * 60 * 60) : 0);
-          }, 0);
-          await this.prisma.attendance.update({
-            where: { id: attendance.id },
-            data: { totalHours: Math.round(totalHours * 100) / 100 },
-          });
-        }
-      } else {
-        // Regular recurring schedule change: updates upcoming schedule without touching past history
-        const assignment = await this.prisma.workScheduleAssignment.findFirst({
-          where: { userId: request.workerId },
-          include: { schedule: true },
-        });
-
-        if (assignment && assignment.schedule) {
-          const matchTime = request.reason?.match(/\[Time:\s*([^\]]+)\]/);
-          let timeStr = matchTime ? matchTime[1].trim() : null;
-
-          if (!timeStr) {
-            const hours = request.adjustedTime.getUTCHours();
-            const minutes = request.adjustedTime.getUTCMinutes();
-            const ampm = hours >= 12 ? 'PM' : 'AM';
-            const hrs12 = hours % 12 || 12;
-            const minsStr = minutes < 10 ? '0' + minutes : minutes.toString();
-            timeStr = `${hrs12.toString().padStart(2, '0')}:${minsStr} ${ampm}`;
-          }
-
-          const newStartTime =
-            request.requestType === 'check_in'
-              ? timeStr
-              : assignment.schedule.startTime;
-          const newEndTime =
-            request.requestType === 'check_out'
-              ? timeStr
-              : assignment.schedule.endTime;
-
-          const newSchedule = await this.prisma.workSchedule.create({
-            data: {
-              companyId: assignment.schedule.companyId,
-              name: `${newStartTime} - ${newEndTime} (Adjusted)`,
-              startTime: newStartTime,
-              endTime: newEndTime,
-              days: assignment.schedule.days,
-            },
-          });
-
-          await this.prisma.workScheduleAssignment.update({
-            where: { id: assignment.id },
-            data: { scheduleId: newSchedule.id },
-          });
+        const legacy = request.reason?.match(/\[Time:\s*([^\]]+)\]/)?.[1];
+        const startTime = request.startTime ?? (request.requestType === 'check_in' && legacy ? legacy : schedule.startTime);
+        const endTime = request.endTime ?? (request.requestType === 'check_out' && legacy ? legacy : schedule.endTime);
+        try { if (timeMinutes(startTime) === timeMinutes(endTime)) throw Error(); } catch { throw new BadRequestException('Invalid shift times'); }
+        const single = request.scope === 'single_day';
+        await tx.attendanceShiftRevision.create({ data: {
+          userId: request.workerId, companyId: schedule.companyId, scheduleId: schedule.id,
+          requestId: request.id, effectiveFrom: request.date, effectiveTo: single ? request.date : null,
+          startTime, endTime, days: single ? ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] : schedule.days,
+          graceMinutes: schedule.graceMinutes, approvedBy: reviewer.id,
+        } });
+        if (!single) {
+          const newSchedule = await tx.workSchedule.create({ data: {
+            companyId: schedule.companyId, name: `${startTime} - ${endTime} (Adjusted)`,
+            startTime, endTime, days: schedule.days, graceMinutes: schedule.graceMinutes,
+          } });
+          await tx.workScheduleAssignment.update({ where: { id: assignment.id }, data: { scheduleId: newSchedule.id } });
         }
       }
-    }
-
-    return updated;
+      // Approved corrections are overlays; the original check-in/out remains unchanged.
+      if (normalized === 'approved' && request.kind === 'correction') {
+        let session = request.sessionId ? await tx.attendanceSession.findFirst({
+          where: { id: request.sessionId, attendance: { userId: request.workerId } },
+        }) : null;
+        if (!session) session = await tx.attendanceSession.findFirst({
+          where: { attendance: { userId: request.workerId },
+            ...(request.requestType === 'check_in' ? { checkInTime: request.originalTime } : { checkOutTime: request.originalTime }) },
+        });
+        if (!session) throw new BadRequestException('Original session not found');
+        await tx.timeAdjustmentRequest.update({ where: { id }, data: { sessionId: session.id } });
+      }
+      const updated = await tx.timeAdjustmentRequest.update({ where: { id }, data: {
+        status: normalized as TimeAdjustmentStatus, reviewedBy: reviewer.id, reviewedAt: new Date(),
+      } });
+      if (normalized === 'approved') {
+        const summary = await engine.summary(request.workerId, day, { includeOpen: false }, tx);
+        for (let i = 0; i < summary.sessions.length; i++) {
+          const s = summary.sessions[i];
+          if (s.effectiveCheckOut && s.effectiveCheckOut < s.effectiveCheckIn) throw new BadRequestException('Check-out must be after check-in');
+          if (i && summary.sessions[i - 1].effectiveCheckOut && s.effectiveCheckIn < summary.sessions[i - 1].effectiveCheckOut!) throw new BadRequestException('Corrected sessions cannot overlap');
+        }
+        await engine.recalculate(request.workerId, day, request.kind === 'shift_change' && request.scope === 'regular' ? undefined : day, tx);
+      }
+      return updated;
+    }, { timeout: 30000 });
   }
 }

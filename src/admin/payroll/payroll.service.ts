@@ -1,3 +1,4 @@
+import { AttendanceService } from '../../common/attendance.service';
 import {
   Injectable,
   NotFoundException,
@@ -89,78 +90,13 @@ export class PayrollService {
       durationMinutes: number;
     }>;
   }> {
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(date);
-    endOfDay.setHours(23, 59, 59, 999);
-
-    const attendance = await this.prisma.attendance.findFirst({
-      where: {
-        userId: workerId,
-        date: { gte: startOfDay, lte: endOfDay },
-      },
-      include: {
-        sessions: {
-          orderBy: { checkInTime: 'asc' },
-        },
-      },
-    });
-
-    if (!attendance || !attendance.sessions?.length) {
-      return {
-        totalHours: 0,
-        totalMinutes: 0,
-        displayTime: '0h 0m',
-        sessions: [],
-      };
-    }
-
-    let totalWorkedSeconds = 0;
-    const sessionDetails: Array<{
-      checkInTime: Date;
-      checkOutTime: Date | null;
-      durationMinutes: number;
-    }> = [];
-
-    for (const session of attendance.sessions) {
-      const zoneSeconds = session.zoneSeconds ?? 0;
-      const storedHoursSeconds = session.hoursWorked
-        ? Math.round(session.hoursWorked * 3600)
-        : 0;
-      const closedDurationSeconds = session.checkOutTime
-        ? Math.max(
-            0,
-            Math.floor(
-              (session.checkOutTime.getTime() - session.checkInTime.getTime()) /
-                1000,
-            ),
-          )
-        : 0;
-      const workedSeconds =
-        zoneSeconds || storedHoursSeconds || closedDurationSeconds;
-      totalWorkedSeconds += workedSeconds;
-
-      sessionDetails.push({
-        checkInTime: session.checkInTime,
-        checkOutTime: session.checkOutTime,
-        durationMinutes: Math.floor(workedSeconds / 60),
-      });
-    }
-
-    if (totalWorkedSeconds <= 0 && attendance.totalHours) {
-      totalWorkedSeconds = Math.round(attendance.totalHours * 3600);
-    }
-
-    const totalMinutes = Math.floor(totalWorkedSeconds / 60);
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
-    const totalHours = Math.round((totalWorkedSeconds / 3600) * 100) / 100;
-
+    const day = date.toISOString().slice(0, 10);
+    const summary = await new AttendanceService(this.prisma).summary(workerId, day, { includeOpen: false });
+    const totalMinutes = Math.floor(summary.closedCountedSeconds / 60);
     return {
-      totalHours,
-      totalMinutes,
-      displayTime: `${hours}h ${minutes}m`,
-      sessions: sessionDetails,
+      totalHours: summary.closedCountedSeconds / 3600, totalMinutes,
+      displayTime: `${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m`,
+      sessions: summary.sessions.map(s => ({ checkInTime: s.effectiveCheckIn, checkOutTime: s.effectiveCheckOut, durationMinutes: Math.floor(s.countedSeconds / 60) })),
     };
   }
 
@@ -286,40 +222,12 @@ export class PayrollService {
 
       const sessionsByProject = new Map<string | null, number>();
 
-      for (const session of attendance.sessions) {
+      const calculated = await new AttendanceService(this.prisma).summary(attendance.userId, attendance.date.toISOString().slice(0, 10), { companyId, includeOpen: false });
+      for (const session of calculated.sessions) {
         if (projectId && session.projectId !== projectId) continue;
-
-        const zoneSeconds = session.zoneSeconds ?? 0;
-        const storedHoursSeconds = session.hoursWorked
-          ? Math.round(session.hoursWorked * 3600)
-          : 0;
-        const closedDurationSeconds = session.checkOutTime
-          ? Math.max(
-              0,
-              Math.floor(
-                (session.checkOutTime.getTime() -
-                  session.checkInTime.getTime()) /
-                  1000,
-              ),
-            )
-          : 0;
-        const workedSeconds =
-          zoneSeconds || storedHoursSeconds || closedDurationSeconds;
-        if (workedSeconds <= 0) continue;
-
-        const resolvedProjectId =
-          session.projectId ?? fallbackProject?.id ?? null;
-        sessionsByProject.set(
-          resolvedProjectId,
-          (sessionsByProject.get(resolvedProjectId) ?? 0) + workedSeconds,
-        );
-      }
-
-      if (sessionsByProject.size === 0 && attendance.totalHours && !projectId) {
-        sessionsByProject.set(
-          fallbackProject?.id ?? null,
-          Math.round(attendance.totalHours * 3600),
-        );
+        if (session.countedSeconds <= 0) continue;
+        const resolvedProjectId = session.projectId ?? fallbackProject?.id ?? null;
+        sessionsByProject.set(resolvedProjectId, (sessionsByProject.get(resolvedProjectId) ?? 0) + session.countedSeconds);
       }
 
       for (const [resolvedProjectId, workedSeconds] of sessionsByProject) {

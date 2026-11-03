@@ -9,6 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { TimeAdjustmentsService } from './time-adjustments.service';
+import { TimeAdjustmentDto } from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -25,13 +26,7 @@ export class TimeAdjustmentsController {
   async submitRequest(
     @CurrentUser() user: any,
     @Body()
-    body: {
-      date: string;
-      requestType: 'check_in' | 'check_out';
-      originalTime: string;
-      adjustedTime: string;
-      reason?: string;
-    },
+    body: TimeAdjustmentDto,
   ) {
     return this.service.createRequest(user.id, body);
   }
@@ -56,7 +51,7 @@ export class TimeAdjustmentsController {
   }
 
   @Patch(':id/status')
-  @Roles(UserRole.admin, UserRole.manager, UserRole.super_admin)
+  @Roles(UserRole.admin, UserRole.super_admin)
   async updateStatus(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -71,19 +66,19 @@ export class TimeAdjustmentsController {
   }
 
   @Patch(':id/approve')
-  @Roles(UserRole.admin, UserRole.manager, UserRole.super_admin)
+  @Roles(UserRole.admin, UserRole.super_admin)
   async approve(@Param('id') id: string, @CurrentUser() user: any) {
     return this.service.updateRequestStatus(id, 'approved', user);
   }
 
   @Patch(':id/deny')
-  @Roles(UserRole.admin, UserRole.manager, UserRole.super_admin)
+  @Roles(UserRole.admin, UserRole.super_admin)
   async deny(@Param('id') id: string, @CurrentUser() user: any) {
     return this.service.updateRequestStatus(id, 'denied', user);
   }
 
   @Patch(':id/reject')
-  @Roles(UserRole.admin, UserRole.manager, UserRole.super_admin)
+  @Roles(UserRole.admin, UserRole.super_admin)
   async reject(@Param('id') id: string, @CurrentUser() user: any) {
     return this.service.updateRequestStatus(id, 'denied', user);
   }

@@ -400,10 +400,7 @@ export class QuoteLibraryService {
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     });
 
-    const safeWorkItems =
-      role === UserRole.manager
-        ? workItems.map(({ unitCost: _unitCost, ...item }) => item)
-        : workItems;
+    const safeWorkItems = workItems;
 
     if (params?.flat) {
       return safeWorkItems;
@@ -445,10 +442,8 @@ export class QuoteLibraryService {
     });
 
     if (!item) throw new NotFoundException('Quote work item not found');
-    if (role === UserRole.manager) {
-      const { unitCost: _unitCost, ...safeItem } = item;
-      return safeItem;
-    }
+    // Manager allowed to see quote work items pricing
+    // keep unitCost
     return item;
   }
 

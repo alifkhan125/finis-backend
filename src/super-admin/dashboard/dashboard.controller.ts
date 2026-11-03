@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards, Request } from '@nestjs/common';
 import { SuperAdminDashboardService } from './dashboard.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -57,8 +57,8 @@ export class SuperAdminDashboardController {
    * Attendance analytics for super admin
    */
   @Get('dashboard/attendance-summary')
-  getAttendanceSummary(@Query() query: AttendanceQueryDto) {
-    return this.superAdminDashboardService.getAttendanceSummary(query);
+  getAttendanceSummary(@Query() query: AttendanceQueryDto, @Request() req: any) {
+    return this.superAdminDashboardService.getAttendanceSummary(query, req.user);
   }
 
   /**
@@ -66,8 +66,8 @@ export class SuperAdminDashboardController {
    * Paginated attendance records
    */
   @Get('dashboard/attendance-records')
-  getAttendanceRecords(@Query() query: AttendanceQueryDto) {
-    return this.superAdminDashboardService.getAttendanceRecords(query);
+  getAttendanceRecords(@Query() query: AttendanceQueryDto, @Request() req: any) {
+    return this.superAdminDashboardService.getAttendanceRecords(query, req.user);
   }
 
   /**

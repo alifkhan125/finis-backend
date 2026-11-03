@@ -1,4 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { AttendanceService } from '../../common/attendance.service';
+import { Injectable, BadRequestException } from '@nestjs/common';
+import { assignedShift, attendanceDay, attendanceStatus, shiftInstant } from '../../common/attendance-policy';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   SuperAdminDashboardQueryDto,
@@ -675,191 +677,111 @@ export class SuperAdminDashboardService {
   }
 
   // ─── ATTENDANCE SUMMARY (Super Admin) ─────────────────────────────────────
-  async getAttendanceSummary(query: AttendanceQueryDto) {
+  async getAttendanceSummary(query: AttendanceQueryDto, caller?: { id: string; role: string }) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 50;
     const isAll = query.date === 'all';
-
-    let dateWhere: any = {};
-
-    if (!isAll) {
-      const dateStr = query.date || new Date().toISOString().split('T')[0];
-      const parts = dateStr.split('-');
-      let start: Date;
-      let end: Date;
-
-      if (parts.length === 3) {
-        // Base UTC day
-        const baseUtc = new Date(
-          Date.UTC(
-            Number(parts[0]),
-            Number(parts[1]) - 1,
-            Number(parts[2]),
-            0,
-            0,
-            0,
-          ),
-        );
-        // Covers client day (UTC+6 / BST) with cushion (covers UTC to UTC+8):
-        // start: 16:00 UTC previous day, end: 20:00 UTC current day
-        start = new Date(baseUtc.getTime() - 8 * 60 * 60 * 1000);
-        end = new Date(baseUtc.getTime() + 20 * 60 * 60 * 1000);
-      } else {
-        const d = new Date(dateStr);
-        start = new Date(d.getTime() - 8 * 60 * 60 * 1000);
-        end = new Date(d.getTime() + 20 * 60 * 60 * 1000);
-      }
-
-      const sessionDateWhere = {
-        checkInTime: { gte: start, lte: end },
-      };
-
-      dateWhere = {
-        OR: [
-          { date: { gte: start, lte: end } },
-          { sessions: { some: sessionDateWhere } },
-        ],
-      };
+    const day = isAll ? attendanceDay(new Date()) : query.date || attendanceDay(new Date());
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Number.isNaN(Date.parse(day))) {
+      throw new BadRequestException('Invalid attendance date');
     }
-
-    const [total, present, late, absent, activeCheckIns, records] =
-      await Promise.all([
-        this.prisma.attendance.count({
-          where: isAll ? undefined : dateWhere,
-        }),
-        this.prisma.attendance.count({
-          where: isAll
-            ? {
-                OR: [
-                  { status: { in: ['present', 'late'] } },
-                  { sessions: { some: { checkOutTime: null } } },
-                ],
-              }
-            : {
-                AND: [
-                  dateWhere,
-                  {
-                    OR: [
-                      { status: { in: ['present', 'late'] } },
-                      { sessions: { some: { checkOutTime: null } } },
-                    ],
-                  },
-                ],
-              },
-        }),
-        this.prisma.attendance.count({
-          where: isAll
-            ? { status: 'late' }
-            : { AND: [dateWhere, { status: 'late' }] },
-        }),
-        this.prisma.attendance.count({
-          where: isAll
-            ? { status: 'absent' }
-            : { AND: [dateWhere, { status: 'absent' }] },
-        }),
-        this.prisma.attendance.count({
-          where: isAll
-            ? { sessions: { some: { checkOutTime: null } } }
-            : {
-                AND: [
-                  dateWhere,
-                  { sessions: { some: { checkOutTime: null } } },
-                ],
-              },
-        }),
-        this.prisma.attendance.findMany({
-          where: isAll ? undefined : dateWhere,
-          skip: (page - 1) * limit,
-          take: limit,
-          orderBy: { updatedAt: 'desc' },
-          include: {
-            user: {
-              select: {
-                id: true,
-                fullName: true,
-                avatarUrl: true,
-                role: true,
-                projectMemberships: {
-                  take: 1,
-                  orderBy: { createdAt: 'desc' },
-                  include: { project: { select: { name: true } } },
-                },
-              },
-            },
-            sessions: {
-              orderBy: { checkInTime: 'desc' },
-              take: 1,
-              select: {
-                checkInTime: true,
-                checkOutTime: true,
-                inLat: true,
-                inLng: true,
-                outLat: true,
-                outLng: true,
-                zoneSeconds: true,
-              },
-            },
-          },
-        }),
-      ]);
-
+    const companyScope = caller?.role === 'super_admin' ? {} : { ownerId: caller?.id ?? '' };
+    const companies = await this.prisma.company.findMany({ where: companyScope, select: { id: true } });
+    const companyIds = companies.map(c => c.id);
+    const userScope = {
+      OR: [
+        { companyMembers: { some: { companyId: { in: companyIds } } } },
+        { projectMemberships: { some: { project: { companyId: { in: companyIds } } } } },
+      ],
+    };
+    const dateWhere = {
+      user: userScope,
+      ...(!isAll ? { OR: [
+        { date: { gte: new Date(`${day}T00:00:00Z`), lt: new Date(new Date(`${day}T00:00:00Z`).getTime() + 86400000) } },
+        { sessions: { some: { checkInTime: { gte: shiftInstant(day, 0), lt: shiftInstant(day, 1440) } } } },
+      ] } : {}),
+    };
+    const userSelect = {
+      id: true, fullName: true, avatarUrl: true, role: true,
+      projectMemberships: {
+        where: { project: { companyId: { in: companyIds } } },
+        take: 1, orderBy: { createdAt: 'desc' as const },
+        include: { project: { select: { name: true } } },
+      },
+    } as const;
+    const [records, assignments] = await Promise.all([
+      this.prisma.attendance.findMany({
+        where: dateWhere, orderBy: { updatedAt: 'desc' },
+        include: {
+          user: { select: userSelect },
+          sessions: { orderBy: { checkInTime: 'asc' }, select: {
+            checkInTime: true, checkOutTime: true, inLat: true, inLng: true,
+            outLat: true, outLng: true, zoneSeconds: true,
+          } },
+        },
+      }),
+      this.prisma.workScheduleAssignment.findMany({
+        where: {
+          schedule: { companyId: { in: companyIds } },
+          user: { ...userScope, status: 'active', role: { in: ['worker', 'manager'] } },
+        },
+        include: { schedule: true, user: { select: userSelect } },
+      }),
+    ]);
+    const approvedLeaves = await this.prisma.leaveRequest.findMany({
+      where: { status: 'approved', userId: { in: assignments.map(a => a.userId) } },
+    });
+    const now = new Date();
+    const worker = (user: typeof assignments[number]['user']) => ({
+      id: user.id, fullName: user.fullName, avatarUrl: user.avatarUrl, role: user.role,
+      projectName: user.projectMemberships[0]?.project.name ?? null,
+    });
+    const engine = new AttendanceService(this.prisma);
+    const output = await Promise.all(records.map(async record => {
+      const firstCheckIn = record.sessions[0]?.checkInTime;
+      const recordDay = isAll && firstCheckIn ? await engine.dayForCheckIn(record.userId, firstCheckIn) : isAll ? record.date.toISOString().slice(0, 10) : day;
+      const calculation = await engine.summary(record.userId, recordDay, { allowedCompanyIds: companyIds });
+      const latest = calculation.sessions[calculation.sessions.length - 1];
+      return {
+        id: record.id, date: `${recordDay}T00:00:00Z`, status: calculation.status, totalHours: calculation.totalInsideHours,
+        calculation, sessions: calculation.sessions,
+        worker: worker(record.user),
+        session: latest ? { ...latest, checkInTime: calculation.firstCheckIn, checkOutTime: calculation.lastCheckOut, zoneSeconds: latest.zoneSeconds ?? 0 } : null,
+      };
+    }));
+    if (!isAll) {
+      for (const userId of new Set(assignments.map(a => a.userId))) {
+        if (records.some(r => r.userId === userId)) continue;
+        const userAssignments = assignments.filter(a => a.userId === userId);
+        const calculation = await engine.summary(userId, day, { allowedCompanyIds: companyIds });
+        if (!calculation.approvedShift && calculation.status !== 'leave') continue;
+        output.push({
+          id: `scheduled-${userId}-${day}`, date: `${day}T00:00:00Z`,
+          status: calculation.status, totalHours: calculation.totalInsideHours,
+          calculation, sessions: calculation.sessions, session: null, worker: worker(userAssignments[0].user),
+        });
+      }
+    }
+    const uniqueRows = [...new Map(output.filter(r => r.calculation.approvedShift || r.calculation.totalSessions || r.status === 'leave').map(r => [`${r.worker.id}:${r.date}`, r])).values()];
+    const total = uniqueRows.length;
+    const present = uniqueRows.filter(r => ['present', 'late', 'half_day'].includes(r.status)).length;
     return {
       stats: {
-        total,
-        present,
-        late,
-        absent,
-        activeCheckIns,
-        attendanceRate:
-          total > 0 ? Math.round((present / total) * 1000) / 10 : 0,
+        total, present,
+        late: uniqueRows.filter(r => r.status === 'late').length,
+        absent: uniqueRows.filter(r => r.status === 'absent' || r.status === 'outside_shift' && r.calculation.approvedShift && now >= r.calculation.approvedShift.end).length,
+        leave: uniqueRows.filter(r => r.status === 'leave').length,
+        activeCheckIns: uniqueRows.filter(r => r.calculation.currentState === 'checked_in').length,
+        totalHours: Math.round(uniqueRows.reduce((sum, r) => sum + r.totalHours, 0) * 100) / 100,
+        attendanceRate: total > 0 ? Math.round(present / total * 1000) / 10 : 0,
       },
-      data: records.map((attendance) => {
-        const latestSession = attendance.sessions[0];
-        const isActiveCheckIn = Boolean(
-          latestSession && !latestSession.checkOutTime,
-        );
-        const displayDate = attendance.date;
-        const displayStatus = isActiveCheckIn ? 'present' : attendance.status;
-
-        return {
-          id: attendance.id,
-          date: displayDate,
-          status: displayStatus,
-          totalHours: attendance.totalHours ?? 0,
-          worker: {
-            id: attendance.user.id,
-            fullName: attendance.user.fullName,
-            avatarUrl: attendance.user.avatarUrl,
-            role:
-              attendance.user.projectMemberships?.[0]?.role ??
-              attendance.user.role,
-            projectName:
-              attendance.user.projectMemberships?.[0]?.project?.name ?? null,
-          },
-          session: latestSession
-            ? {
-                checkInTime: latestSession.checkInTime,
-                checkOutTime: latestSession.checkOutTime,
-                inLat: latestSession.inLat,
-                inLng: latestSession.inLng,
-                outLat: latestSession.outLat,
-                outLng: latestSession.outLng,
-                zoneSeconds: latestSession.zoneSeconds ?? 0,
-              }
-            : null,
-        };
-      }),
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      },
+      data: uniqueRows.slice((page - 1) * limit, page * limit),
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
     };
   }
 
-  async getAttendanceRecords(query: AttendanceQueryDto) {
-    return this.getAttendanceSummary(query);
+  async getAttendanceRecords(query: AttendanceQueryDto, caller?: { id: string; role: string }) {
+    return this.getAttendanceSummary(query, caller);
   }
 
   // ─── RECENT BUYERS (Paginated) ────────────────────────────────────────────

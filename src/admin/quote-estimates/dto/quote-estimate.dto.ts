@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import {
   IsArray,
   IsDateString,
@@ -310,6 +310,12 @@ export class UpdateQuoteEstimateDto {
   taxAmount?: number;
 
   @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'string' && (value.toLowerCase() === 'all' || !value.trim())) {
+      return undefined;
+    }
+    return value;
+  })
   @IsEnum(QuoteEstimateStatus)
   status?: QuoteEstimateStatus;
 

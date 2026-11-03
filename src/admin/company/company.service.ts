@@ -35,7 +35,17 @@ export class CompanyService {
     }
 
     if (userRole === 'manager') {
-      const [companyMemberships, projectMemberships] = await Promise.all([
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { tenantId: true },
+      });
+
+      const [
+        companyMemberships,
+        projectMemberships,
+        directManagedProjects,
+        tenantCompanies,
+      ] = await Promise.all([
         this.prisma.companyMember.findMany({
           where: { userId, company: { isActive: true } },
           select: { companyId: true },
@@ -44,12 +54,24 @@ export class CompanyService {
           where: { userId, project: { company: { isActive: true } } },
           select: { project: { select: { companyId: true } } },
         }),
+        this.prisma.project.findMany({
+          where: { managerId: userId, company: { isActive: true } },
+          select: { companyId: true },
+        }),
+        user?.tenantId
+          ? this.prisma.company.findMany({
+              where: { tenantId: user.tenantId, isActive: true },
+              select: { id: true },
+            })
+          : Promise.resolve([]),
       ]);
 
       return [
         ...new Set([
           ...companyMemberships.map((membership) => membership.companyId),
           ...projectMemberships.map((membership) => membership.project.companyId),
+          ...directManagedProjects.map((project) => project.companyId),
+          ...tenantCompanies.map((company) => company.id),
         ]),
       ];
     }
@@ -104,16 +126,13 @@ export class CompanyService {
     }
 
     if (userRole === 'manager') {
-      const membership = await this.prisma.companyMember.findUnique({
-        where: {
-          companyId_userId: {
-            companyId,
-            userId,
-          },
-        },
-      });
-
-      if (membership) return company;
+      const accessibleCompanyIds = await this.getAccessibleCompanyIds(
+        userId,
+        userRole,
+      );
+      if (accessibleCompanyIds.includes(companyId)) {
+        return company;
+      }
     }
 
     throw new ForbiddenException('Access denied');

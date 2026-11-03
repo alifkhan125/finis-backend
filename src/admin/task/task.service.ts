@@ -617,6 +617,13 @@ export class TaskService {
     const completedSubTaskCount =
       subTasks?.filter((subTask: any) => subTask.status === 'completed')
         .length ?? 0;
+    const subTaskStatusSummary = (subTasks ?? []).reduce(
+      (summary: Record<string, number>, subTask: any) => {
+        const status = String(subTask.status ?? 'pending').toLowerCase();
+        summary[status] = (summary[status] ?? 0) + 1;
+        return summary;
+      },
+    );
     const assignedWorkerCount = this.countAssignedWorkers(task);
     const workflow = this.buildWorkflowSnapshot(task);
 
@@ -646,6 +653,7 @@ export class TaskService {
       workflow,
       subTaskCount,
       completedSubTaskCount,
+      subTaskStatusSummary,
       assignedWorkerCount,
     };
   }

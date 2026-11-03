@@ -5,6 +5,8 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AttendanceService } from '../../common/attendance.service';
+import { attendanceDay, timeMinutes, formatShiftTime } from '../../common/attendance-policy';
 import {
   CreateProjectDto,
   UpdateProjectDto,
@@ -148,10 +150,40 @@ export class ProjectService {
     userId: string,
     userRole?: string,
   ) {
+    if (this.isSuperAdmin(userRole)) {
+      const company = await this.prisma.company.findUnique({
+        where: { id: companyId },
+      });
+      if (!company) throw new ForbiddenException('Company not found');
+      return company;
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { tenantId: true },
+    });
+
+    const isManager = userRole === UserRole.manager;
+
     const company = await this.prisma.company.findFirst({
-      where: this.isSuperAdmin(userRole)
-        ? { id: companyId }
-        : { id: companyId, ownerId: userId },
+      where: isManager
+        ? {
+            id: companyId,
+            OR: [
+              { ownerId: userId },
+              { members: { some: { userId } } },
+              { projects: { some: { teamMembers: { some: { userId } } } } },
+              { projects: { some: { managerId: userId } } },
+              ...(user?.tenantId ? [{ tenantId: user.tenantId }] : []),
+            ],
+          }
+        : {
+            id: companyId,
+            OR: [
+              { ownerId: userId },
+              ...(user?.tenantId ? [{ tenantId: user.tenantId }] : []),
+            ],
+          },
     });
     if (!company)
       throw new ForbiddenException('Company not found or not yours');
@@ -193,11 +225,24 @@ export class ProjectService {
     }
 
     if (userRole === UserRole.manager) {
+      if (project.managerId === userId) return project;
+
       const member = await this.prisma.projectMember.findFirst({
-        where: { projectId, userId, role: 'manager' },
+        where: { projectId, userId },
       });
-      if (!member)
-        throw new ForbiddenException('You are not assigned to this project');
+      if (member) return project;
+
+      if (project.company?.tenantId) {
+        const user = await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { tenantId: true },
+        });
+        if (user?.tenantId && user.tenantId === project.company.tenantId) {
+          return project;
+        }
+      }
+
+      throw new ForbiddenException('You are not assigned to this project');
     } else {
       if (project.managerId !== userId)
         throw new ForbiddenException('You do not have access to this project');
@@ -270,7 +315,7 @@ export class ProjectService {
 
   // ─── PLAN LIMIT CHECKS ────────────────────────────────────────────────────
 
-  private async checkProjectLimit(adminId: string) {
+  private async checkProjectLimit(adminId: string, companyId?: string) {
     const admin = await this.prisma.user.findUnique({
       where: { id: adminId },
       select: { tenantId: true, isExemptFromSubscription: true },
@@ -278,14 +323,26 @@ export class ProjectService {
 
     if (admin?.isExemptFromSubscription) return;
 
-    if (!admin?.tenantId) {
+    let targetTenantId = admin?.tenantId;
+    if (!targetTenantId && companyId) {
+      const company = await this.prisma.company.findUnique({
+        where: { id: companyId },
+        include: {
+          owner: { select: { tenantId: true, isExemptFromSubscription: true } },
+        },
+      });
+      if (company?.owner?.isExemptFromSubscription) return;
+      targetTenantId = company?.tenantId ?? company?.owner?.tenantId ?? undefined;
+    }
+
+    if (!targetTenantId) {
       throw new ForbiddenException(
         'Please purchase a subscription before creating a project.',
       );
     }
 
     const tenant = await this.prisma.tenant.findUnique({
-      where: { id: admin.tenantId },
+      where: { id: targetTenantId },
       include: { plan: { select: { maxProjects: true } } },
     });
 
@@ -313,7 +370,7 @@ export class ProjectService {
 
     // Tenant-wide project count so every company under the same subscription is included
     const currentCount = await this.prisma.project.count({
-      where: { company: { tenantId: admin.tenantId } },
+      where: { company: { tenantId: targetTenantId } },
     });
 
     if (currentCount >= max) {
@@ -334,7 +391,7 @@ export class ProjectService {
   ) {
     await this.verifyCompanyAccess(companyId, userId, userRole);
     if (!this.isSuperAdmin(userRole)) {
-      await this.checkProjectLimit(userId);
+      await this.checkProjectLimit(userId, companyId);
     }
   }
 
@@ -499,9 +556,18 @@ export class ProjectService {
     }
 
     if (userRole === UserRole.manager) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { tenantId: true },
+      });
+
       return this.prisma.project.findMany({
         where: {
-          teamMembers: { some: { userId, role: 'manager' } },
+          OR: [
+            { managerId: userId },
+            { teamMembers: { some: { userId } } },
+            ...(user?.tenantId ? [{ company: { tenantId: user.tenantId } }] : []),
+          ],
           ...(status && { status: status as any }),
           ...(search && {
             OR: [
@@ -654,7 +720,7 @@ export class ProjectService {
 
     //  Project limit check — super_admin skip
     if (!this.isSuperAdmin(userRole)) {
-      await this.checkProjectLimit(adminId);
+      await this.checkProjectLimit(adminId, dto.companyId);
     }
 
     const normalizedSections = this.normalizeHouseSections(dto.houseSections);
@@ -2926,8 +2992,17 @@ export class ProjectService {
     adminId: string,
     userRole: string,
     days?: any[],
+    graceMinutes: number = 15,
+    effectiveFrom?: string,
   ) {
     await this.verifyProjectAccess(projectId, adminId, userRole);
+    if (userRole !== 'admin' && userRole !== 'super_admin') throw new ForbiddenException('Only admins may set shifts');
+    try { if (timeMinutes(startTime) === timeMinutes(endTime)) throw Error(); } catch { throw new BadRequestException('Invalid shift times'); }
+    startTime = formatShiftTime(startTime); endTime = formatShiftTime(endTime);
+
+    if (!Number.isInteger(graceMinutes) || graceMinutes < 0 || graceMinutes > 180) {
+      throw new BadRequestException('Grace period must be between 0 and 180 minutes');
+    }
 
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
@@ -2937,9 +3012,13 @@ export class ProjectService {
     const scheduleName = `${startTime} - ${endTime}`;
     const defaultDays = ['mon', 'tue', 'wed', 'thu', 'fri'];
     const selectedDays = days && days.length > 0 ? days : defaultDays;
+    const from = effectiveFrom?.slice(0, 10) ?? attendanceDay(new Date());
+    if (Number.isNaN(Date.parse(from))) throw new BadRequestException('Invalid effective date');
+    const members = await this.prisma.projectMember.count({ where: { projectId, userId: { in: [...new Set(userIds)] } } });
+    if (members !== new Set(userIds).size) throw new BadRequestException('Workers must belong to this project');
 
     let schedule = await this.prisma.workSchedule.findFirst({
-      where: { companyId: project.companyId, startTime, endTime },
+      where: { companyId: project.companyId, startTime, endTime, graceMinutes, days: { equals: selectedDays } },
     });
 
     if (!schedule) {
@@ -2950,6 +3029,7 @@ export class ProjectService {
           startTime,
           endTime,
           days: selectedDays,
+          graceMinutes,
         },
       });
     } else if (schedule.days.length === 0) {
@@ -2978,6 +3058,11 @@ export class ProjectService {
           },
         });
       }
+      await this.prisma.attendanceShiftRevision.create({ data: {
+        userId, companyId: project.companyId, scheduleId: schedule.id, effectiveFrom: new Date(`${from}T00:00:00Z`),
+        startTime, endTime, days: selectedDays, graceMinutes, approvedBy: adminId,
+      } });
+      await new AttendanceService(this.prisma).recalculate(userId, from);
     }
 
     return { success: true, message: 'Schedules assigned successfully' };
@@ -2986,30 +3071,57 @@ export class ProjectService {
   async updateSchedule(
     projectId: string,
     scheduleId: string,
-    data: { startTime?: string; endTime?: string; days?: any[] },
+    data: { startTime?: string; endTime?: string; days?: any[]; graceMinutes?: number; effectiveFrom?: string; userId?: string },
     adminId: string,
     userRole: string,
   ) {
     await this.verifyProjectAccess(projectId, adminId, userRole);
+
+    if (userRole !== 'admin' && userRole !== 'super_admin') throw new ForbiddenException('Only admins may set shifts');
 
     const schedule = await this.prisma.workSchedule.findUnique({
       where: { id: scheduleId },
     });
     if (!schedule) throw new NotFoundException('Schedule not found');
 
-    const startTime = data.startTime ?? schedule.startTime;
-    const endTime = data.endTime ?? schedule.endTime;
-    const days = data.days && data.days.length > 0 ? data.days : schedule.days;
+    const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { companyId: true } });
+    if (schedule.companyId !== project?.companyId) throw new ForbiddenException('Schedule access denied');
+    const graceMinutes = data.graceMinutes ?? schedule.graceMinutes;
+    if (!Number.isInteger(graceMinutes) || graceMinutes < 0 || graceMinutes > 180) {
+      throw new BadRequestException('Grace period must be between 0 and 180 minutes');
+    }
 
-    const updated = await this.prisma.workSchedule.update({
-      where: { id: scheduleId },
+    let startTime = data.startTime ?? schedule.startTime;
+    let endTime = data.endTime ?? schedule.endTime;
+    const days = data.days && data.days.length > 0 ? data.days : schedule.days;
+    try { if (timeMinutes(startTime) === timeMinutes(endTime)) throw Error(); } catch { throw new BadRequestException('Invalid shift times'); }
+    startTime = formatShiftTime(startTime); endTime = formatShiftTime(endTime);
+    const from = data.effectiveFrom?.slice(0, 10) ?? attendanceDay(new Date());
+    if (Number.isNaN(Date.parse(from))) throw new BadRequestException('Invalid effective date');
+
+    const updated = await this.prisma.workSchedule.create({
       data: {
+        companyId: schedule.companyId,
         startTime,
         endTime,
         name: `${startTime} - ${endTime}`,
         days,
+        graceMinutes,
       },
     });
+
+    const assignments = await this.prisma.workScheduleAssignment.findMany({ where: { scheduleId, ...(data.userId ? { userId: data.userId } : {}) } });
+    for (const assignment of assignments) {
+      await this.prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT id FROM users WHERE id = ${assignment.userId}::uuid FOR UPDATE`;
+        await tx.attendanceShiftRevision.create({ data: {
+          userId: assignment.userId, companyId: schedule.companyId, scheduleId: updated.id,
+          effectiveFrom: new Date(`${from}T00:00:00Z`), startTime, endTime, days, graceMinutes, approvedBy: adminId,
+        } });
+        await tx.workScheduleAssignment.update({ where: { id: assignment.id }, data: { scheduleId: updated.id } });
+        await new AttendanceService(this.prisma).recalculate(assignment.userId, from, undefined, tx);
+      }, { timeout: 30000 });
+    }
 
     return {
       success: true,
@@ -3025,6 +3137,7 @@ export class ProjectService {
     userRole: string,
   ) {
     await this.verifyProjectAccess(projectId, adminId, userRole);
+    if (userRole !== 'admin' && userRole !== 'super_admin') throw new ForbiddenException('Only admins may remove shifts');
 
     const assignment = await this.prisma.workScheduleAssignment.findUnique({
       where: { id: assignmentId },
@@ -3032,9 +3145,20 @@ export class ProjectService {
     if (!assignment)
       throw new NotFoundException('Schedule assignment not found');
 
+    const source = await this.prisma.workSchedule.findUnique({ where: { id: assignment.scheduleId } });
+    const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { companyId: true } });
+    if (!source || source.companyId !== project?.companyId) throw new ForbiddenException('Schedule access denied');
+    const day = attendanceDay(new Date());
+    await this.prisma.attendanceShiftRevision.create({ data: {
+      userId: assignment.userId, companyId: source.companyId, scheduleId: source.id,
+      effectiveFrom: new Date(`${day}T00:00:00Z`), startTime: source.startTime, endTime: source.endTime,
+      days: [], graceMinutes: source.graceMinutes, approvedBy: adminId,
+    } });
+
     await this.prisma.workScheduleAssignment.delete({
       where: { id: assignmentId },
     });
+    await new AttendanceService(this.prisma).recalculate(assignment.userId, day);
 
     return {
       success: true,

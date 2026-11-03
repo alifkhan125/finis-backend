@@ -1,3 +1,4 @@
+import { AttendanceService } from '../../common/attendance.service';
 import {
   WebSocketGateway,
   WebSocketServer,
@@ -414,8 +415,6 @@ export class GeofencingGateway
           await this.prisma.attendanceSession.update({
             where: { id: state.sessionId },
             data: {
-              checkOutTime: now,
-              hoursWorked: secondsToHours(finalZoneSeconds),
               zoneSeconds: finalZoneSeconds,
               outLat: state.lat,
               outLng: state.lng,
@@ -484,23 +483,11 @@ export class GeofencingGateway
       return;
     }
 
-    // Today attendance upsert
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const attendance = await this.prisma.attendance.upsert({
-      where: { userId_date: { userId: user.id, date: today } },
-      create: { userId: user.id, date: today, status: 'present' },
-      update: { status: 'present' },
-    });
-
-    // ✅ Duplicate session check — আজকে already open session আছে কিনা
-    const existingOpenSession = await this.prisma.attendanceSession.findFirst({
-      where: {
-        attendanceId: attendance.id,
-        checkOutTime: null,
-      },
-    });
+    const engine = new AttendanceService(this.prisma);
+    let opened;
+    try { opened = await engine.open(user.id, projectId, lat, lng); }
+    catch (error) { client.emit('check_in_error', { message: error.message }); return; }
+    const existingOpenSession = opened.alreadyOpen ? opened.session : null;
 
     if (existingOpenSession) {
       // Open session আছে — সেটাই use করো
@@ -533,17 +520,7 @@ export class GeofencingGateway
       return;
     }
 
-    // নতুন session তৈরি করো
-    const session = await this.prisma.attendanceSession.create({
-      data: {
-        attendanceId: attendance.id,
-        projectId,
-        checkInTime: new Date(),
-        inLat: lat,
-        inLng: lng,
-        zoneSeconds: 0,
-      },
-    });
+    const session = opened.session;
 
     // Zone check
     const isInsideZone = await this.checkInsideZone(lat, lng, projectId);
@@ -647,26 +624,9 @@ export class GeofencingGateway
 
     const hoursWorked = secondsToHours(finalZoneSeconds);
 
-    // Session close করো
-    await this.prisma.attendanceSession.update({
-      where: { id: state.sessionId },
-      data: {
-        checkOutTime: now,
-        hoursWorked,
-        zoneSeconds: finalZoneSeconds,
-        outLat: lat,
-        outLng: lng,
-      },
-    });
-
-    // Attendance total hours update
-    await this.updateAttendanceTotalHours(state.sessionId);
-
-    // Auto payroll upsert — আজকের সব session মিলিয়ে একটাই draft payroll
-    // প্রতিটা check-out এ call হবে, কিন্তু DB তে ঐ দিনের একটাই record থাকবে
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    void this.payrollService.autoUpsertDailyPayroll(user.id, today);
+    const closed = await new AttendanceService(this.prisma).close(user.id, lat, lng, finalZoneSeconds);
+    const shiftDate = new Date(`${closed.day}T00:00:00Z`);
+    await this.payrollService.autoUpsertDailyPayroll(user.id, shiftDate);
 
     // State reset — location tracking off
     state.sessionId = null;
@@ -1188,24 +1148,9 @@ export class GeofencingGateway
 
       if (!session) return;
 
-      // এই attendance এর সব completed sessions এর zoneSeconds যোগ করো
-      const allSessions = await this.prisma.attendanceSession.findMany({
-        where: {
-          attendanceId: session.attendanceId,
-          checkOutTime: { not: null }, // শুধু completed sessions
-        },
-        select: { zoneSeconds: true },
-      });
+      const attendance = await this.prisma.attendance.findUnique({ where: { id: session.attendanceId } });
+      if (attendance) await new AttendanceService(this.prisma).recalculate(attendance.userId, attendance.date.toISOString().slice(0, 10));
 
-      const totalZoneSeconds = allSessions.reduce(
-        (sum, s) => sum + (s.zoneSeconds ?? 0),
-        0,
-      );
-
-      await this.prisma.attendance.update({
-        where: { id: session.attendanceId },
-        data: { totalHours: secondsToHours(totalZoneSeconds) },
-      });
     } catch (e) {
       console.error('updateAttendanceTotalHours failed:', e);
     }

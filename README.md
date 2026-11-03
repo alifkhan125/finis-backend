@@ -27,7 +27,7 @@ The backend is the central service for both sibling clients:
 - `finis` connects through `EXPO_PUBLIC_API_BASE_URL`
 - REST and Socket.IO use the same backend origin and port
 
-The default local API address is `http://localhost:6000`.
+The default local API address is .env .
 
 ### Requirements
 
@@ -113,7 +113,7 @@ expected to return `Cannot GET /subscription/webhook`.
 
 ### Verify the connection
 
-With the backend running, a request to `http://localhost:6000` should reach
+With the backend running, a request to .env should reach
 NestJS. A `404` JSON response at `/` still proves the server is reachable when
 no root route is defined. Confirm database access by opening Prisma Studio or
 using a real login/API request from either client.

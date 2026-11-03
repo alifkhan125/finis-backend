@@ -33,7 +33,7 @@ export class QuoteEstimatesController {
   constructor(private readonly service: QuoteEstimatesService) {}
 
   @Post('v2/export-pdf')
-  @Roles(UserRole.admin, UserRole.super_admin)
+  @Roles(UserRole.admin, UserRole.super_admin, UserRole.manager)
   async exportV2(@Body() dto: QuotationV2Dto, @CurrentUser('role') role: string, @Res() res: Response) {
     const pdf = await this.service.exportV2Pdf(dto, role);
     res.setHeader('Content-Type', 'application/pdf');
@@ -42,7 +42,7 @@ export class QuoteEstimatesController {
   }
 
   @Post('v2/email')
-  @Roles(UserRole.admin, UserRole.super_admin)
+  @Roles(UserRole.admin, UserRole.super_admin, UserRole.manager)
   emailV2(@Body() dto: EmailQuotationV2Dto, @CurrentUser('role') role: string) {
     return this.service.emailV2(dto, role);
   }
@@ -94,7 +94,7 @@ export class QuoteEstimatesController {
   }
 
   @Post(':id/send')
-  @Roles(UserRole.admin, UserRole.super_admin)
+  @Roles(UserRole.admin, UserRole.super_admin, UserRole.manager)
   send(
     @Param('id') id: string,
     @CurrentUser('id') userId: string,
@@ -104,7 +104,7 @@ export class QuoteEstimatesController {
   }
 
   @Get(':id/pdf')
-  @Roles(UserRole.admin, UserRole.super_admin)
+  @Roles(UserRole.admin, UserRole.super_admin, UserRole.manager)
   async exportPdf(
     @Param('id') id: string,
     @CurrentUser('id') userId: string,
@@ -121,7 +121,7 @@ export class QuoteEstimatesController {
   }
 
   @Post(':id/accept')
-  @Roles(UserRole.admin, UserRole.super_admin)
+  @Roles(UserRole.admin, UserRole.super_admin, UserRole.manager)
   accept(
     @Param('id') id: string,
     @Body() dto: AcceptQuoteEstimateDto,
@@ -132,7 +132,7 @@ export class QuoteEstimatesController {
   }
 
   @Post(':id/reject')
-  @Roles(UserRole.admin, UserRole.super_admin)
+  @Roles(UserRole.admin, UserRole.super_admin, UserRole.manager)
   reject(
     @Param('id') id: string,
     @Body() dto: RejectQuoteEstimateDto,
@@ -143,7 +143,7 @@ export class QuoteEstimatesController {
   }
 
   @Post(':id/cancel')
-  @Roles(UserRole.admin, UserRole.super_admin)
+  @Roles(UserRole.admin, UserRole.super_admin, UserRole.manager)
   cancel(
     @Param('id') id: string,
     @CurrentUser('id') userId: string,
@@ -153,7 +153,7 @@ export class QuoteEstimatesController {
   }
 
   @Post(':id/convert-to-project')
-  @Roles(UserRole.admin, UserRole.super_admin)
+  @Roles(UserRole.admin, UserRole.super_admin, UserRole.manager)
   convertToProject(
     @Param('id') id: string,
     @CurrentUser('id') userId: string,
@@ -163,7 +163,7 @@ export class QuoteEstimatesController {
   }
 
   @Post(':id/accept-and-create-project')
-  @Roles(UserRole.admin, UserRole.super_admin)
+  @Roles(UserRole.admin, UserRole.super_admin, UserRole.manager)
   acceptAndCreateProject(
     @Param('id') id: string,
     @Body() dto: AcceptQuoteEstimateDto,

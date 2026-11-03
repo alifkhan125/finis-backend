@@ -45,10 +45,10 @@ export class QuoteEstimatesService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly projectService: ProjectService,
-  ) {}
+  ) { }
 
   private assertV2Admin(role: string) {
-    if (role !== UserRole.admin && role !== UserRole.super_admin) throw new ForbiddenException('Admin access required');
+    if (role !== UserRole.admin && role !== UserRole.super_admin && role !== UserRole.manager) throw new ForbiddenException('Admin or manager access required');
   }
 
   async exportV2Pdf(input: QuotationV2Dto, role: string) {
@@ -112,20 +112,7 @@ export class QuoteEstimatesService {
       totalAmount: this.toNumber(quote.totalAmount),
       tasks,
     };
-    if (role !== UserRole.manager) return serialized;
-
-    const {
-      subtotal: _subtotal,
-      discountAmount: _discountAmount,
-      taxAmount: _taxAmount,
-      totalAmount: _totalAmount,
-      pricingConfig: _pricingConfig,
-      ...safeQuote
-    } = serialized;
-    return {
-      ...safeQuote,
-      tasks: tasks.map(({ unitPrice: _unitPrice, totalPrice: _totalPrice, ...task }) => task),
-    };
+    return serialized;
   }
 
   private getMailFromAddress() {
@@ -241,6 +228,11 @@ export class QuoteEstimatesService {
   }
 
   private async assertCompany(companyId: string, userId: string, role: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { tenantId: true },
+    });
+
     const company = await this.prisma.company.findFirst({
       where: {
         id: companyId,
@@ -248,11 +240,13 @@ export class QuoteEstimatesService {
         ...(role === UserRole.super_admin ? {} : role === UserRole.admin
           ? { ownerId: userId }
           : {
-              OR: [
-                { members: { some: { userId } } },
-                { projects: { some: { teamMembers: { some: { userId } } } } },
-              ],
-            }),
+            OR: [
+              { members: { some: { userId } } },
+              { projects: { some: { teamMembers: { some: { userId } } } } },
+              { projects: { some: { managerId: userId } } },
+              ...(user?.tenantId ? [{ tenantId: user.tenantId }] : []),
+            ],
+          }),
       },
       select: { id: true },
     });
@@ -309,6 +303,11 @@ export class QuoteEstimatesService {
   }
 
   private async getQuoteOrThrow(id: string, userId: string, role: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { tenantId: true },
+    });
+
     const quote = await this.prisma.quoteEstimate.findFirst({
       where: {
         id,
@@ -316,12 +315,19 @@ export class QuoteEstimatesService {
           ? {}
           : role === UserRole.admin
             ? {
-                OR: [
-                  { company: { ownerId: userId } },
-                  { createdById: userId },
-                ],
-              }
-            : { createdById: userId }),
+              OR: [
+                { company: { ownerId: userId } },
+                { createdById: userId },
+              ],
+            }
+            : {
+              OR: [
+                { createdById: userId },
+                { company: { members: { some: { userId } } } },
+                { company: { projects: { some: { managerId: userId } } } },
+                ...(user?.tenantId ? [{ company: { tenantId: user.tenantId } }] : []),
+              ],
+            }),
       },
       include: includeQuoteEstimate,
     });
@@ -337,13 +343,10 @@ export class QuoteEstimatesService {
     this.assertQuoteAuthor(role);
     await this.assertCompany(dto.companyId, userId, role);
     this.assertDateRange(dto.startDate, dto.endDate);
-    const managerTasks = role === UserRole.manager
-      ? (dto.tasks ?? []).map((task) => ({ ...task, unitPrice: 0 }))
-      : dto.tasks;
     const totals = this.calculateTotals(
-      managerTasks,
-      role === UserRole.manager ? 0 : dto.discountAmount ?? 0,
-      role === UserRole.manager ? 0 : dto.taxAmount ?? 0,
+      dto.tasks,
+      dto.discountAmount ?? 0,
+      dto.taxAmount ?? 0,
     );
     const planning = this.resolvePlanningRange(dto);
 
@@ -379,7 +382,7 @@ export class QuoteEstimatesService {
         ...(dto.buildingPlan !== undefined
           ? { buildingPlan: dto.buildingPlan as Prisma.InputJsonValue }
           : {}),
-        ...(role !== UserRole.manager && dto.pricingConfig !== undefined
+        ...(dto.pricingConfig !== undefined
           ? { pricingConfig: dto.pricingConfig as Prisma.InputJsonValue }
           : {}),
         createdById: userId,
@@ -398,25 +401,43 @@ export class QuoteEstimatesService {
 
   async findAll(query: QuoteEstimateFilterDto, userId: string, role: string) {
     this.assertQuoteAuthor(role);
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { tenantId: true },
+    });
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 20, 100);
     const where: Prisma.QuoteEstimateWhereInput = {
       ...(role === UserRole.super_admin
         ? {}
         : role === UserRole.admin
-          ? { company: { ownerId: userId } }
-          : { createdById: userId }),
+          ? {
+              OR: [
+                { company: { ownerId: userId } },
+                { company: { members: { some: { userId } } } },
+                { createdById: userId },
+                ...(user?.tenantId ? [{ company: { tenantId: user.tenantId } }] : []),
+              ],
+            }
+          : {
+            OR: [
+              { createdById: userId },
+              { company: { members: { some: { userId } } } },
+              { company: { projects: { some: { managerId: userId } } } },
+              ...(user?.tenantId ? [{ company: { tenantId: user.tenantId } }] : []),
+            ],
+          }),
       ...(query.companyId ? { companyId: query.companyId } : {}),
-      ...(query.status ? { status: query.status } : {}),
+      ...(query.status && (query.status as any).toLowerCase() !== 'all' ? { status: query.status } : {}),
       ...(query.search
         ? {
-            OR: [
-              { quoteNumber: { contains: query.search, mode: 'insensitive' } },
-              { projectName: { contains: query.search, mode: 'insensitive' } },
-              { clientName: { contains: query.search, mode: 'insensitive' } },
-              { clientEmail: { contains: query.search, mode: 'insensitive' } },
-            ],
-          }
+          OR: [
+            { quoteNumber: { contains: query.search, mode: 'insensitive' } },
+            { projectName: { contains: query.search, mode: 'insensitive' } },
+            { clientName: { contains: query.search, mode: 'insensitive' } },
+            { clientEmail: { contains: query.search, mode: 'insensitive' } },
+          ],
+        }
         : {}),
     };
     const [items, total] = await Promise.all([
@@ -488,13 +509,10 @@ export class QuoteEstimatesService {
         unitPrice: Number(task.unitPrice),
         sortOrder: task.sortOrder,
       }));
-    const managerTasks = role === UserRole.manager
-      ? nextTasks.map((task) => ({ ...task, unitPrice: 0 }))
-      : nextTasks;
     const totals = this.calculateTotals(
-      managerTasks,
-      role === UserRole.manager ? 0 : dto.discountAmount ?? Number(existing.discountAmount),
-      role === UserRole.manager ? 0 : dto.taxAmount ?? Number(existing.taxAmount),
+      nextTasks,
+      dto.discountAmount ?? Number(existing.discountAmount),
+      dto.taxAmount ?? Number(existing.taxAmount),
     );
     const planning = this.resolvePlanningRange({
       floorStart: dto.floorStart ?? existing.floorStart,
@@ -548,14 +566,14 @@ export class QuoteEstimatesService {
           dto.floorStart !== undefined || dto.floorEnd !== undefined ||
           dto.unitStart !== undefined || dto.unitEnd !== undefined
           ? {
-              floorsCount,
-              unitsPerFloor,
-              floorStart: planning.floorStart,
-              floorEnd: planning.floorEnd,
-              unitStart: planning.unitStart,
-              unitEnd: planning.unitEnd,
-              totalUnits,
-            }
+            floorsCount,
+            unitsPerFloor,
+            floorStart: planning.floorStart,
+            floorEnd: planning.floorEnd,
+            unitStart: planning.unitStart,
+            unitEnd: planning.unitEnd,
+            totalUnits,
+          }
           : {}),
         ...(role !== UserRole.manager && dto.status !== undefined ? { status: dto.status } : {}),
         subtotal: totals.subtotal,
@@ -569,16 +587,16 @@ export class QuoteEstimatesService {
         ...(dto.buildingPlan !== undefined
           ? { buildingPlan: dto.buildingPlan as Prisma.InputJsonValue }
           : {}),
-        ...(role !== UserRole.manager && dto.pricingConfig !== undefined
+        ...(dto.pricingConfig !== undefined
           ? { pricingConfig: dto.pricingConfig as Prisma.InputJsonValue }
           : {}),
         ...(dto.tasks !== undefined
           ? {
-              tasks: {
-                deleteMany: {},
-                create: totals.tasks,
-              },
-            }
+            tasks: {
+              deleteMany: {},
+              create: totals.tasks,
+            },
+          }
           : {}),
       },
       include: includeQuoteEstimate,
@@ -606,34 +624,38 @@ export class QuoteEstimatesService {
   }
 
   async send(id: string, userId: string, role: string) {
-    this.assertAdmin(role);
+    this.assertQuoteAuthor(role);
     const existing = await this.getQuoteOrThrow(id, userId, role);
     if (!existing.clientEmail) {
       throw new BadRequestException('Client email is required before sending');
     }
 
     const pdf = await this.exportPdf(id, userId, role);
-    await this.createMailTransporter().sendMail({
-      from: this.getMailFromAddress(),
-      to: existing.clientEmail,
-      subject: `Quote Estimate ${existing.quoteNumber} - ${existing.projectName}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; color: #1f2937; max-width: 640px;">
-          <h2 style="color: #1D4F6D; margin-bottom: 8px;">Quote Estimate</h2>
-          <p>Hello ${existing.clientName},</p>
-          <p>Please find the attached quote estimate for <strong>${existing.projectName}</strong>.</p>
-          <p><strong>Total:</strong> ${this.money(existing.totalAmount)}</p>
-          <p style="color: #6b7280; font-size: 12px;">This quote was sent from Finis.</p>
-        </div>
-      `,
-      attachments: [
-        {
-          filename: pdf.filename,
-          content: pdf.buffer,
-          contentType: 'application/pdf',
-        },
-      ],
-    });
+    try {
+      await this.createMailTransporter().sendMail({
+        from: this.getMailFromAddress(),
+        to: existing.clientEmail,
+        subject: `Quote Estimate ${existing.quoteNumber} - ${existing.projectName}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; color: #1f2937; max-width: 640px;">
+            <h2 style="color: #1D4F6D; margin-bottom: 8px;">Quote Estimate</h2>
+            <p>Hello ${existing.clientName},</p>
+            <p>Please find the attached quote estimate for <strong>${existing.projectName}</strong>.</p>
+            <p><strong>Total:</strong> ${this.money(existing.totalAmount)}</p>
+            <p style="color: #6b7280; font-size: 12px;">This quote was sent from Finis.</p>
+          </div>
+        `,
+        attachments: [
+          {
+            filename: pdf.filename,
+            content: pdf.buffer,
+            contentType: 'application/pdf',
+          },
+        ],
+      });
+    } catch (mailError) {
+      console.warn(`Failed to send email to ${existing.clientEmail}:`, mailError);
+    }
 
     const quote = await this.prisma.quoteEstimate.update({
       where: { id },
@@ -647,7 +669,7 @@ export class QuoteEstimatesService {
   }
 
   async exportPdf(id: string, userId: string, role: string) {
-    this.assertAdmin(role);
+    this.assertQuoteAuthor(role);
     const quote = await this.getQuoteOrThrow(id, userId, role);
     const doc = new PDFDocument({ size: 'A4', margin: 40, bufferPages: true });
     const chunks: Buffer[] = [];
@@ -944,7 +966,7 @@ export class QuoteEstimatesService {
     userId: string,
     role: string,
   ) {
-    this.assertAdmin(role);
+    this.assertQuoteAuthor(role);
     await this.getQuoteOrThrow(id, userId, role);
     const quote = await this.prisma.quoteEstimate.update({
       where: { id },
@@ -968,7 +990,7 @@ export class QuoteEstimatesService {
   }
 
   async reject(id: string, dto: RejectQuoteEstimateDto, userId: string, role: string) {
-    this.assertAdmin(role);
+    this.assertQuoteAuthor(role);
     await this.getQuoteOrThrow(id, userId, role);
     const quote = await this.prisma.quoteEstimate.update({
       where: { id },
@@ -988,7 +1010,7 @@ export class QuoteEstimatesService {
   }
 
   async cancel(id: string, userId: string, role: string) {
-    this.assertAdmin(role);
+    this.assertQuoteAuthor(role);
     await this.getQuoteOrThrow(id, userId, role);
     const quote = await this.prisma.quoteEstimate.update({
       where: { id },
@@ -1011,7 +1033,7 @@ export class QuoteEstimatesService {
     userId: string,
     role: string,
   ) {
-    this.assertAdmin(role);
+    this.assertQuoteAuthor(role);
     const existing = await this.getQuoteOrThrow(id, userId, role);
     if (existing.convertedProjectId) {
       const existingTaskCount = await this.prisma.task.count({
@@ -1070,8 +1092,8 @@ export class QuoteEstimatesService {
     } | null;
     const plannedFloors = Array.isArray(buildingPlan?.floors)
       ? buildingPlan.floors.filter(
-          (floor) => floor.selected !== false && floor.units?.some((unit) => unit.selected !== false),
-        )
+        (floor) => floor.selected !== false && floor.units?.some((unit) => unit.selected !== false),
+      )
       : [];
     const project = await this.prisma.$transaction(async (tx) => {
       const createdProject = await tx.project.create({
@@ -1242,35 +1264,35 @@ export class QuoteEstimatesService {
       const plannedLocationKey = quoteTask.plannedLocationKey?.toLowerCase();
       const matchedUnit = plannedUnitName
         ? units.find((unit) => {
-            return (
-              unit.name.toLowerCase() === plannedUnitName.toLowerCase() &&
-              (!matchedFloor || unit.floorId === matchedFloor.id) ||
-              (plannedLocationKey?.includes(`unit_${unit.name.toLowerCase()}`) &&
-                (!matchedFloor || unit.floorId === matchedFloor.id))
-            );
-          })
+          return (
+            unit.name.toLowerCase() === plannedUnitName.toLowerCase() &&
+            (!matchedFloor || unit.floorId === matchedFloor.id) ||
+            (plannedLocationKey?.includes(`unit_${unit.name.toLowerCase()}`) &&
+              (!matchedFloor || unit.floorId === matchedFloor.id))
+          );
+        })
         : units.find((unit) => !matchedFloor || unit.floorId === matchedFloor.id) ?? units[0];
       const plannedLocationKeys = Array.isArray(quoteTask.plannedLocationKeys)
         ? (quoteTask.plannedLocationKeys as string[])
-            .map((key) => key.toLowerCase())
-            .filter(Boolean)
+          .map((key) => key.toLowerCase())
+          .filter(Boolean)
         : [];
       const taskUnits = plannedLocationKeys.length
         ? units.filter((unit) => {
-            const floor = floors.find((item) => item.id === unit.floorId);
-            return Boolean(
-              floor &&
-                (plannedLocationKeys.includes(
-                  `floor_${floor.floorNumber}_unit_${unit.name.toLowerCase()}`,
-                ) ||
-                  plannedLocationKeys.includes(
-                    `floor_${this.locationToken(floor.name)}_unit_${this.locationToken(unit.name)}`,
-                  )),
-            );
-          })
+          const floor = floors.find((item) => item.id === unit.floorId);
+          return Boolean(
+            floor &&
+            (plannedLocationKeys.includes(
+              `floor_${floor.floorNumber}_unit_${unit.name.toLowerCase()}`,
+            ) ||
+              plannedLocationKeys.includes(
+                `floor_${this.locationToken(floor.name)}_unit_${this.locationToken(unit.name)}`,
+              )),
+          );
+        })
         : matchedUnit
-        ? [matchedUnit]
-        : (() => {
+          ? [matchedUnit]
+          : (() => {
             const selectedFloors = Array.isArray(quoteTask.selectedFloorNumbers)
               ? (quoteTask.selectedFloorNumbers as number[])
               : [];
