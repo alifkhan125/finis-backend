@@ -1063,6 +1063,14 @@ export class MessageService {
       throw new BadRequestException('Message must have content or media');
     }
 
+    const sender = await this.prisma.user.findUnique({
+      where: { id: adminId },
+      select: { role: true },
+    });
+    if (sender?.role !== 'super_admin') {
+      throw new ForbiddenException('Only super_admin can reply to support messages');
+    }
+
     // Thread verify — super_admin participant কিনা
     const isParticipant = await this.prisma.threadParticipant.findUnique({
       where: { threadId_userId: { threadId, userId: adminId } },
